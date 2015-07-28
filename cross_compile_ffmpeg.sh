@@ -34,7 +34,7 @@ set_box_memory_size_bytes() {
 }
 
 check_missing_packages () {
-  local check_packages=('curl' 'pkg-config' 'make' 'git' 'svn' 'cmake' 'gcc' 'autoconf' 'automake' 'yasm' 'cvs' 'flex' 'bison' 'makeinfo' 'g++' 'ed' 'hg' 'pax' 'unzip')
+  local check_packages=('curl' 'pkg-config' 'make' 'git' 'svn' 'cmake' 'gcc' 'autoconf' 'automake' 'yasm' 'cvs' 'flex' 'bison' 'makeinfo' 'g++' 'ed' 'hg' 'unzip')
   # libtool check is wonky...
   if [[ $OSTYPE == darwin* ]]; then 
     check_packages+=(glibtoolize)
@@ -286,7 +286,7 @@ do_configure() {
       ./bootstrap.sh
     fi
     rm -f already_* # reset
-    echo "configuring $english_name ($PWD) as $ PATH=$PATH $configure_name $configure_options"
+    echo "configuring $english_name ($PWD) as $ PATH=$PATH $configure_name $configure_options $LDFLAGS $CFLAGS"
     nice "$configure_name" $configure_options || exit 1
     touch -- "$touch_name"
     make clean # just in case, but sometimes useful when files change, etc.
@@ -1222,8 +1222,10 @@ build_libdecklink() {
 build_ffmpeg() {
   local type=$1
   local shared=$2
-  local git_url="https://github.com/FFmpeg/FFmpeg.git"
-  local output_dir="ffmpeg_git"
+  #local git_url="https://github.com/FFmpeg/FFmpeg.git"
+  local ffver="2.7.2"
+  local output_dir="ffmpeg-$ffver"
+  local ffurl="http://ffmpeg.org/releases/ffmpeg-${ffver}.tar.bz2"
 
   local extra_configure_opts=""
 
@@ -1231,7 +1233,7 @@ build_ffmpeg() {
 
   # can't mix and match --enable-static --enable-shared unfortunately, or the final executable seems to just use shared if the're both present
   if [[ $shared == "shared" ]]; then
-    output_dir=${output_dir}_shared
+    #output_dir=${output_dir}_shared
     final_install_dir=`pwd`/${output_dir}.installed
     extra_configure_opts="--enable-shared --disable-static $extra_configure_opts"
     # avoid installing this to system?
@@ -1240,7 +1242,8 @@ build_ffmpeg() {
     extra_configure_opts="--enable-static --disable-shared $extra_configure_opts --prefix=$mingw_w64_x86_64_prefix"
   fi
 
-  do_git_checkout $git_url ${output_dir}
+  #do_git_checkout $git_url ${output_dir}
+  download_and_unpack_file $ffurl ${output_dir}
   cd $output_dir
   
   if [ "$bits_target" = "32" ]; then
@@ -1414,15 +1417,15 @@ else
   gcc_cpu_count=1 # compatible low RAM...
 fi
 
-build_ffmpeg_static=y
-build_ffmpeg_shared=n
+build_ffmpeg_static=n
+build_ffmpeg_shared=y
 build_libmxf=n
 build_mp4box=n
 build_mplayer=n
 build_vlc=n
 git_get_latest=y
 prefer_stable=y
-#disable_nonfree=n # have no value to force prompt
+disable_nonfree=n # have no value to force prompt
 original_cflags= # no export needed, this is just a local copy
 
 # parse command line parameters, if any
@@ -1522,7 +1525,7 @@ if [ -d "mingw-w64-x86_64" ]; then # they installed a 64-bit compiler, build 64-
   host_target='x86_64-w64-mingw32'
   mingw_w64_x86_64_prefix="$cur_dir/mingw-w64-x86_64/$host_target"
   export PATH="$cur_dir/mingw-w64-x86_64/bin:$original_path"
-  export PKG_CONFIG_PATH="$cur_dir/mingw-w64-x86_64/x86_64-w64-mingw32/lib/pkgconfig"
+  export PKG_CONFIG_PATH="$mingw_w64_x86_64_prefix/lib/pkgconfig"
   mkdir -p x86_64
   bits_target=64
   cross_prefix="$cur_dir/mingw-w64-x86_64/bin/x86_64-w64-mingw32-"
