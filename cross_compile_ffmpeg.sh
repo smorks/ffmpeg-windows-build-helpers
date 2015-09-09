@@ -1261,9 +1261,9 @@ build_ffmpeg() {
   local output_dir="ffmpeg-$ffver"
   local ffurl="http://ffmpeg.org/releases/ffmpeg-${ffver}.tar.bz2"
 
-  if [[ "$non_free" = "y" ]]; then
-    output_dir="${output_dir}_with_aac"
-  fi
+  #if [[ "$non_free" = "y" ]]; then
+  #  output_dir="${output_dir}_with_aac"
+  #fi
 
   local postpend_configure_opts=""
 
