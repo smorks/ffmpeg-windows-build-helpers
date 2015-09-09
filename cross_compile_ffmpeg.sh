@@ -1257,7 +1257,7 @@ build_ffmpeg() {
   local type=$1
   local shared=$2
   #local git_url="https://github.com/FFmpeg/FFmpeg.git"
-  local ffver="2.7.2"
+  local ffver="2.8"
   local output_dir="ffmpeg-$ffver"
   local ffurl="http://ffmpeg.org/releases/ffmpeg-${ffver}.tar.bz2"
 
