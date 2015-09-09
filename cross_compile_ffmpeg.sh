@@ -169,7 +169,7 @@ install_cross_compiler() {
   if [[ -f $zeranoe_script_name ]]; then
     rm $zeranoe_script_name || exit 1
   fi
-  curl -4 https://raw.githubusercontent.com/rdp/ffmpeg-windows-build-helpers/master/patches/$zeranoe_script_name -O  || exit 1
+  curl -4 https://raw.githubusercontent.com/smorks/ffmpeg-windows-build-helpers/master/patches/$zeranoe_script_name -O  || exit 1
   chmod u+x $zeranoe_script_name
   unset CFLAGS # don't want these for the compiler itself since it creates executables to run on the local box
   # pthreads version to avoid having to use cvs for it
