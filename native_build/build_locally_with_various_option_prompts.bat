@@ -10,11 +10,11 @@ ECHO Starting cygwin install/update...
 mkdir ffmpeg_local_builds\cygwin_local_install
 @rem cd to it so that cygwin install logs etc. go there
 cd ffmpeg_local_builds\cygwin_local_install
-ECHO Downloading cygwin setup executable...some error logs are expected...
-@powershell -command "$clnt = new-object System.Net.WebClient; $clnt.DownloadFile(\"https://cygwin.com/setup-x86.exe\", \"setup-x86.exe\")"
+ECHO Downloading cygwin setup executable...some error warning messages are expected from the cygwin install...
+@powershell -command "$clnt = new-object System.Net.WebClient; $clnt.DownloadFile(\"https://www.cygwin.com/setup-x86_64.exe\", \"setup-x86_64.exe\")"
 
 @rem forced to hard select a mirror here apparently...
-start /min /wait setup-x86.exe ^
+start /min /wait setup-x86_64.exe ^
 --quiet-mode ^
 --no-admin ^
 --no-startmenu ^
@@ -23,8 +23,9 @@ start /min /wait setup-x86.exe ^
 --site http://mirrors.xmission.com/cygwin/ ^
 --root %cd% ^
 --packages ^
-ed,wget,subversion,texinfo,gcc-g++,bison,flex,cvs,yasm,automake,libtool,autoconf,gcc-core,cmake,git,make,pkg-config,zlib1g-dev,mercurial,unzip,pax,ncurses,patch
-@rem wget is here just for initial script download XXXX just use curl, could remove wget here [and in main readme ...] :)
+ed,curl,wget,subversion,texinfo,gcc-g++,bison,flex,cvs,yasm,automake,libtool,autoconf,gcc-core,cmake,git,make,pkg-config,zlib1g-dev,mercurial,unzip,pax,ncurses,patch
+@rem wget for the initial script download as well as zeranoe's uses it
+@rem curl is used in our script all over
 @rem ncurses for the "clear" command yikes!
 
 echo "done installing cygwin"
@@ -45,6 +46,7 @@ cd ffmpeg_local_builds
 cd ..
 
 ECHO done with local build...check output above to see if successfull..
+ECHO if not successful you might try re running the script, it "should" pick up where it left off.
 ECHO.
 ECHO if you want more advanced configuration (like building mplayer or mp4box, 10-bit, etc) 
 ECHO open %cd%\ffmpeg_local_builds\cygwin_local_install\cygwin.bat
