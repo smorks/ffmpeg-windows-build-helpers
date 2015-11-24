@@ -333,10 +333,21 @@ do_make() {
 do_make_and_make_install() {
   local extra_make_options="$1"
   do_make "$extra_make_options"
-  local touch_name=$(get_small_touchfile_name already_ran_make_install "$extra_make_options")
+  do_make_install "$extra_make_options"
+}
+
+do_make_install() {
+  local extra_make_install_options="$1"
+  local override_make_install_options="$2" # startingly, some need/use something different than just 'make install'
+  if [[ -z $override_make_install_options ]]; then
+    local make_install_options="install $extra_make_options"
+  else
+    local make_install_options="$override_make_install_options"
+  fi
+  local touch_name=$(get_small_touchfile_name already_ran_make_install "$make_install_options")
   if [ ! -f $touch_name ]; then
-    echo "make installing $(pwd) as $ PATH=$PATH make install $extra_make_options"
-    nice make install $extra_make_options || exit 1
+    echo "make installing $(pwd) as $ PATH=$PATH make $make_install_options"
+    nice make $make_install_options || exit 1
     touch $touch_name || exit 1
   fi
 }
@@ -498,13 +509,15 @@ build_libx265() {
 }
 
 build_libopenh264() {
-  do_git_checkout "https://github.com/cisco/openh264.git" openh264 24916a652ee5d3 # need this to match ffmpeg's use apparently
+  do_git_checkout "https://github.com/cisco/openh264.git" openh264 24916a652ee5d3 # need this to match ffmpeg's apparently or openh264v1.4 [this is last commit before 1.5 AFAICT]
   cd openh264
     if [ $bits_target = 32 ]; then
-      do_make_and_make_install "$make_prefix_options OS=mingw_nt ARCH=i686" # x86?
+      local arch=i686 # or x86? 
     else
-      do_make_and_make_install "$make_prefix_options OS=mingw_nt ARCH=x86_64"
+      local arch=x86_64
     fi
+    do_make "$make_prefix_options OS=mingw_nt ARCH=$arch ASM=yasm"
+    do_make_install "" "$make_prefix_options OS=mingw_nt install-static"
   cd ..
 }
 
@@ -599,7 +612,7 @@ build_libxavs() {
     generic_configure "--cross-prefix=$cross_prefix" # see https://github.com/rdp/ffmpeg-windows-build-helpers/issues/3
     unset LDFLAGS
     do_make_and_make_install "$make_prefix_options"
-    rm NUL # cygwin can't delete this folder if it has this oddly named file in it...
+    rm -f NUL # cygwin causes windows explorer to not be able to delete this folder if it has this oddly named file in it...
   cd ..
 }
 
@@ -853,7 +866,7 @@ build_orc() {
 }
 
 build_libxml2() {
-  generic_download_and_install ftp://xmlsoft.org/libxml2/libxml2-2.9.0.tar.gz libxml2-2.9.0 "--without-python"
+  generic_download_and_install http://xmlsoft.org/sources/libxml2-2.9.2.tar.gz libxml2-2.9.2 "--without-python"
 }
 
 build_libbluray() {
@@ -872,8 +885,8 @@ build_libschroedinger() {
 }
 
 build_gnutls() {
-  download_and_unpack_file ftp://ftp.gnutls.org/gcrypt/gnutls/v3.3/gnutls-3.3.17.1.tar.xz gnutls-3.3.17.1
-  cd gnutls-3.3.17.1
+  download_and_unpack_file ftp://ftp.gnutls.org/gcrypt/gnutls/v3.3/gnutls-3.3.19.tar.xz gnutls-3.3.19
+  cd gnutls-3.3.19
     sed -i.bak 's/mkstemp(tmpfile)/ -1 /g' src/danetool.c # fix x86_64 absent? but danetool is just an exe AFAICT so this hack should be ok...
     generic_configure "--disable-cxx --disable-doc --enable-local-libopts  --disable-guile" # don't need the c++ version, in an effort to cut down on size... XXXX test size difference... libopts to allow building with local autogen installed, guile is so that if it finds guile installed (cygwin did/does) it won't try and link/build to it and fail...
     do_make_and_make_install
@@ -943,6 +956,7 @@ build_libaacplus() {
 }
 
 build_openssl() {
+  # warning, this is a very old version of openssl since we don't really use it anymore hasn't been updated in awhile...
   download_and_unpack_file http://www.openssl.org/source/openssl-1.0.1g.tar.gz openssl-1.0.1g
   cd openssl-1.0.1g
   #export CC="${cross_prefix}gcc"
@@ -1150,8 +1164,13 @@ build_vidstab() {
 build_vlc() {
   # currently broken, since it got too old for libavcodec and I didn't want to build its own custom one yet to match, and now it's broken with gcc 5.2.0 seemingly
   # call out dependencies here since it's a lot, plus hierarchical FTW!
+  # should be ffmpeg 1.1.1 or some odd?
+
+  echo "not doing vlc build, currently broken until enough interest to fix it"
+  return
+
   #if [ ! -f $mingw_w64_x86_64_prefix/lib/libavutil.a ]; then # it takes awhile without this 
-    build_ffmpeg ffmpeg # static
+    build_ffmpeg ffmpeg 
   #fi
   build_libdvdread
   build_libdvdnav
@@ -1189,6 +1208,7 @@ build_vlc() {
 
 "
   cd ..
+  unset DVDREAD_LIBS
 }
 
 build_mplayer() {
@@ -1405,9 +1425,9 @@ build_dependencies() {
   build_libxvid
   build_libxavs
   build_libsoxr
-  build_libopenh264
   build_libx264
   build_libx265
+  build_libopenh264
   build_lame
   build_twolame
   #build_lua was only used by libquvi
@@ -1557,7 +1577,7 @@ check_missing_packages # do this first since it's annoying to go through prompts
 intro # remember to always run the intro, since it adjust pwd
 install_cross_compiler 
 
-export PKG_CONFIG_LIBDIR= # disable pkg-config from reverting back to and finding system installed packages [yikes]
+export PKG_CONFIG_LIBDIR= # disable pkg-config from finding [and using] normal linux system installed libs [yikes]
 
 if [[ $OSTYPE == darwin* ]]; then 
   # mac add some helper scripts
@@ -1566,7 +1586,7 @@ if [[ $OSTYPE == darwin* ]]; then
   fi
   cd mac_bin
     if [[ ! -x readlink ]]; then
-      # make some behave like linux...
+      # make some scripts behave like linux...
       curl -4 https://raw.githubusercontent.com/rdp/ffmpeg-windows-build-helpers/master/patches/md5sum.mac > md5sum  || exit 1
       chmod u+x ./md5sum
       curl -4 https://raw.githubusercontent.com/rdp/ffmpeg-windows-build-helpers/master/patches/readlink.mac > readlink  || exit 1
