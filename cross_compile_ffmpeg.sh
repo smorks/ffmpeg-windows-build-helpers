@@ -844,7 +844,7 @@ build_libfribidi() {
 }
 
 build_libass() {
-  generic_download_and_install http://libass.googlecode.com/files/libass-0.10.2.tar.gz libass-0.10.2
+  generic_download_and_install https://github.com/libass/libass/releases/download/0.13.1/libass-0.13.1.tar.gz libass-0.13.1
   # fribidi, fontconfig, freetype throw them all in there for good measure, trying to help mplayer once though it didn't help [FFmpeg needed a change for fribidi here though I believe]
   sed -i.bak 's/-lass -lm/-lass -lfribidi -lfontconfig -lfreetype -lexpat -lm/' "$PKG_CONFIG_PATH/libass.pc"
 }
@@ -1297,7 +1297,7 @@ build_ffmpeg() {
   local ffurl="http://ffmpeg.org/releases/ffmpeg-${ffver}.tar.bz2"
 
   #if [[ "$non_free" = "y" ]]; then
-  #  output_dir="${output_dir}_with_aac"
+  #  output_dir="${output_dir}_with_fdk_aac"
   #fi
 
   local postpend_configure_opts=""
@@ -1338,19 +1338,19 @@ build_ffmpeg() {
 
   if [[ "$non_free" = "y" ]]; then
     config_options="$config_options --enable-nonfree --enable-libfdk-aac --disable-libfaac --enable-nvenc " 
-    # faac deemed too poor quality and becomes the default -- add it in and uncomment the build_faac line to include it, if anybody ever does... 
+    # libfaac deemed too poor quality and becomes the default if included -- add it in and uncomment the build_faac line to include it, if anybody ever wants it... 
     # To use fdk-aac in VLC, we need to change FFMPEG's default (aac), but I haven't found how to do that... So I disabled it. This could be an new option for the script? (was --disable-decoder=aac )
     # other possible options: --enable-openssl [unneeded since we use gnutls] --enable-libaacplus [just use fdk-aac only to avoid collision]
   fi
 
   if [[ "$native_build" = "y" ]]; then
     config_options="$config_options --disable-runtime-cpudetect"
-    # XXXX add --cpu=host ... ?
+    # XXXX add --cpu=host ... ???
   else
     config_options="$config_options --enable-runtime-cpudetect"
   fi
 
-  do_debug_build=n # if you need one for gdb.exe ...
+  do_debug_build=n # if you need one for backtraces/examining segfaults using gdb.exe ... change this to a y :)
   if [[ "$do_debug_build" = "y" ]]; then
     # not sure how many of these are actually needed/useful...possibly none LOL
     config_options="$config_options --disable-optimizations --extra-cflags=-Og --extra-cflags=-fno-omit-frame-pointer --enable-debug=3 --extra-cflags=-fno-inline $postpend_configure_opts"
