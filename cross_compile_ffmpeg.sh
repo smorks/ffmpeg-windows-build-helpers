@@ -164,20 +164,19 @@ install_cross_compiler() {
     return
   fi
 
-  # if they get this far, they want a compiler that's not installed, I think...fire away!
+  # if they get this far, they want a compiler that's not installed, I think...fire away! XXXX if 32 bit compiler installed, and request both, rebuilds 32...
 
   local zeranoe_script_name=mingw-w64-build-3.6.7.local
-  if [[ -f $zeranoe_script_name ]]; then
-    rm $zeranoe_script_name || exit 1
-  fi
+  rm -f $zeranoe_script_name || exit 1
   curl -4 https://raw.githubusercontent.com/smorks/ffmpeg-windows-build-helpers/master/patches/$zeranoe_script_name -O  || exit 1
+  
   chmod u+x $zeranoe_script_name
-  unset CFLAGS # don't want these for the compiler itself since it creates executables to run on the local box
+  unset CFLAGS # don't want these for the compiler itself since it creates executables to run on the local box (we have a parameter allowing them to set them for the script "all builds" basically)
   # pthreads version to avoid having to use cvs for it
   echo "starting to download and build cross compile version of gcc [requires working internet access] with thread count $gcc_cpu_count..."
   echo ""
   # --disable-shared allows c++ to be distributed at all...which seemed necessary for some random dependency...
-  nice ./$zeranoe_script_name --clean-build --disable-shared --default-configure  --pthreads-w32-ver=2-9-1 --cpu-count=$gcc_cpu_count --build-type=$compiler_flavors --gcc-ver=5.2.0 || exit 1 
+  nice ./$zeranoe_script_name --clean-build --disable-shared --default-configure  --pthreads-w32-ver=2-9-1 --cpu-count=$gcc_cpu_count --build-type=$compiler_flavors --gcc-ver=5.3.0 || exit 1 
   export CFLAGS=$original_cflags # reset it
   if [[ ! -f mingw-w64-i686/bin/i686-w64-mingw32-gcc && ! -f mingw-w64-x86_64/bin/x86_64-w64-mingw32-gcc ]]; then
     echo "no gcc cross compiler(s) seem built [?] (build failure [?]) recommend nuke sandbox dir (rm -rf sandbox) and try again!"
