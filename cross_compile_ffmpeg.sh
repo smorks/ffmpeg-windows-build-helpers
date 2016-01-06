@@ -3,6 +3,8 @@
 # Copyright (C) 2012 Roger Pack, the script is under the GPLv3, but output FFmpeg's executables aren't
 # set -x # uncomment to enable script debug output
 
+github=https://raw.githubusercontent.com/smorks/ffmpeg-windows-build-helpers/master
+
 yes_no_sel () {
   unset user_input
   local question="$1"
@@ -148,7 +150,7 @@ EOF
 download_gcc_build_script() {
     local zeranoe_script_name=$1
     rm -f $zeranoe_script_name || exit 1
-    curl -4 https://raw.githubusercontent.com/rdp/ffmpeg-windows-build-helpers/master/patches/$zeranoe_script_name -O  || exit 1
+    curl -4 $github/patches/$zeranoe_script_name -O  || exit 1
     chmod u+x $zeranoe_script_name
 }
 
@@ -589,8 +591,8 @@ build_qt() {
 #  download_and_unpack_file http://download.qt-project.org/archive/qt/4.8/4.8.1/qt-everywhere-opensource-src-4.8.1.tar.gz qt-everywhere-opensource-src-4.8.1
 #  cd qt-everywhere-opensource-src-4.8.1
 
-    apply_patch https://raw.githubusercontent.com/rdp/ffmpeg-windows-build-helpers/master/patches/imageformats.patch
-    apply_patch https://raw.githubusercontent.com/rdp/ffmpeg-windows-build-helpers/master/patches/qt-win64.patch
+    apply_patch $github/patches/imageformats.patch
+    apply_patch $github/patches/qt-win64.patch
     # vlc's configure options...mostly
     do_configure "-static -release -fast -no-exceptions -no-stl -no-sql-sqlite -no-qt3support -no-gif -no-libmng -qt-libjpeg -no-libtiff -no-qdbus -no-openssl -no-webkit -sse -no-script -no-multimedia -no-phonon -opensource -no-scripttools -no-opengl -no-script -no-scripttools -no-declarative -no-declarative-debug -opensource -no-s60 -host-little-endian -confirm-license -xplatform win32-g++ -device-option CROSS_COMPILE=$cross_prefix -prefix $mingw_w64_x86_64_prefix -prefix-install -nomake examples"
     if [ ! -f 'already_qt_maked_k' ]; then
@@ -700,7 +702,7 @@ build_libutvideo() {
   download_and_unpack_file http://sourceforge.net/projects/ffmpegwindowsbi/files/utvideo-12.2.1-src.zip utvideo-12.2.1 # local copy since the originating site http://umezawa.dyndns.info/archive/utvideo is sometimes inaccessible from draconian proxies
   #do_git_checkout https://github.com/qyot27/libutvideo.git libutvideo_git_qyot27 # todo this would be even newer version [?]
   cd utvideo-12.2.1
-    apply_patch https://raw.githubusercontent.com/rdp/ffmpeg-windows-build-helpers/master/patches/utv.diff
+    apply_patch $github/patches/utv.diff
     sed -i.bak "s|Format.o|DummyCodec.o|" GNUmakefile
     do_make_and_make_install "CROSS_PREFIX=$cross_prefix DESTDIR=$mingw_w64_x86_64_prefix prefix=" # prefix= to avoid it adding an extra /usr/local to it yikes
   cd ..
@@ -719,7 +721,7 @@ build_libilbc() {
 build_libflite() {
   download_and_unpack_file http://www.speech.cs.cmu.edu/flite/packed/flite-1.4/flite-1.4-release.tar.bz2 flite-1.4-release
   cd flite-1.4-release
-   apply_patch https://raw.githubusercontent.com/rdp/ffmpeg-windows-build-helpers/master/patches/flite_64.diff
+   apply_patch $github/patches/flite_64.diff
    sed -i.bak "s|i386-mingw32-|$cross_prefix|" configure*
    generic_configure
    do_make
@@ -735,7 +737,7 @@ build_libflite() {
 build_libgsm() {
   download_and_unpack_file http://www.quut.com/gsm/gsm-1.0.14.tar.gz gsm-1.0-pl14
   cd gsm-1.0-pl14
-    apply_patch https://raw.githubusercontent.com/rdp/ffmpeg-windows-build-helpers/master/patches/libgsm.patch
+    apply_patch $github/patches/libgsm.patch
     # for openssl to work with it, I think?
     if [[ ! -f  $mingw_w64_x86_64_prefix/include/gsm/gsm.h ]]; then
       # not do_make here since this actually fails [wrongly]
@@ -752,7 +754,7 @@ build_libgsm() {
 build_libopus() {
   download_and_unpack_file http://downloads.xiph.org/releases/opus/opus-1.1.tar.gz opus-1.1
   cd opus-1.1
-    apply_patch https://raw.githubusercontent.com/rdp/ffmpeg-windows-build-helpers/master/patches/opus11.patch # allow it to work with shared builds
+    apply_patch $github/patches/opus11.patch # allow it to work with shared builds
     generic_configure_make_install 
   cd ..
 }
@@ -844,7 +846,7 @@ build_libfribidi() {
   download_and_unpack_file http://fribidi.org/download/fribidi-0.19.4.tar.bz2 fribidi-0.19.4
   cd fribidi-0.19.4
     # make it export symbols right...
-    apply_patch https://raw.githubusercontent.com/rdp/ffmpeg-windows-build-helpers/master/patches/fribidi.diff
+    apply_patch $github/patches/fribidi.diff
     generic_configure
     do_make_and_make_install
   cd ..
@@ -919,7 +921,7 @@ build_libnettle() {
 build_bzlib2() {
   download_and_unpack_file http://fossies.org/linux/misc/bzip2-1.0.6.tar.gz bzip2-1.0.6
   cd bzip2-1.0.6
-    apply_patch https://raw.githubusercontent.com/rdp/ffmpeg-windows-build-helpers/master/patches/bzip2_cross_compile.diff
+    apply_patch $github/patches/bzip2_cross_compile.diff
     do_make "$make_prefix_options libbz2.a bzip2 bzip2recover install"
   cd ..
 }
@@ -1084,7 +1086,7 @@ build_faac() {
 build_lame() {
   download_and_unpack_file http://sourceforge.net/projects/lame/files/lame/3.99/lame-3.99.5.tar.gz/download lame-3.99.5
   cd lame-3.99.5
-    apply_patch https://raw.githubusercontent.com/rdp/ffmpeg-windows-build-helpers/master/patches/lame3.patch
+    apply_patch $github/patches/lame3.patch
     generic_configure_make_install
   cd ..
 }
@@ -1092,8 +1094,8 @@ build_lame() {
 build_zvbi() {
   download_and_unpack_file http://sourceforge.net/projects/zapping/files/zvbi/0.2.35/zvbi-0.2.35.tar.bz2/download zvbi-0.2.35
   cd zvbi-0.2.35
-    apply_patch https://raw.githubusercontent.com/rdp/ffmpeg-windows-build-helpers/master/patches/zvbi-win32.patch
-    apply_patch https://raw.githubusercontent.com/rdp/ffmpeg-windows-build-helpers/master/patches/zvbi-ioctl.patch
+    apply_patch $github/patches/zvbi-win32.patch
+    apply_patch $github/patches/zvbi-ioctl.patch
     export LIBS=-lpng
     generic_configure " --disable-dvb --disable-bktr --disable-nls --disable-proxy --without-doxygen" # thanks vlc contribs!
     unset LIBS
@@ -1279,7 +1281,7 @@ build_mp4box() { # like build_gpac
 build_libMXF() {
   download_and_unpack_file http://sourceforge.net/projects/ingex/files/1.0.0/libMXF/libMXF-src-1.0.0.tgz "libMXF-src-1.0.0"
   cd libMXF-src-1.0.0
-  apply_patch https://raw.githubusercontent.com/rdp/ffmpeg-windows-build-helpers/master/patches/libMXF.diff
+  apply_patch $github/patches/libMXF.diff
   do_make "MINGW_CC_PREFIX=$cross_prefix"
   #
   # Manual equivalent of make install.  Enable it if desired.  We shouldn't need it in theory since we never use libMXF.a file and can just hand pluck out the *.exe files...
@@ -1296,10 +1298,10 @@ build_libMXF() {
 build_libdecklink() {
    if [[ ! -f $mingw_w64_x86_64_prefix/include/DeckLinkAPIVersion.h ]]; then
      # smaller files don't worry about partials for now, plus we only care about the last file anyway here...
-     curl -4 https://raw.githubusercontent.com/rdp/ffmpeg-windows-build-helpers/master/patches/DeckLinkAPI.h > $mingw_w64_x86_64_prefix/include/DeckLinkAPI.h  || exit 1
-     curl -4 https://raw.githubusercontent.com/rdp/ffmpeg-windows-build-helpers/master/patches/DeckLinkAPI_i.c > $mingw_w64_x86_64_prefix/include/DeckLinkAPI_i.c.tmp  || exit 1
+     curl -4 $github/patches/DeckLinkAPI.h > $mingw_w64_x86_64_prefix/include/DeckLinkAPI.h  || exit 1
+     curl -4 $github/patches/DeckLinkAPI_i.c > $mingw_w64_x86_64_prefix/include/DeckLinkAPI_i.c.tmp  || exit 1
      mv $mingw_w64_x86_64_prefix/include/DeckLinkAPI_i.c.tmp $mingw_w64_x86_64_prefix/include/DeckLinkAPI_i.c
-     curl -4 https://raw.githubusercontent.com/rdp/ffmpeg-windows-build-helpers/master/patches/DeckLinkAPIVersion.h > $mingw_w64_x86_64_prefix/include/DeckLinkAPIVersion.h  || exit 1
+     curl -4 $github/patches/DeckLinkAPIVersion.h > $mingw_w64_x86_64_prefix/include/DeckLinkAPIVersion.h  || exit 1
   fi
 }
 
@@ -1603,9 +1605,9 @@ if [[ $OSTYPE == darwin* ]]; then
   cd mac_helper_scripts
     if [[ ! -x readlink ]]; then
       # make some scripts behave like linux...
-      curl -4 https://raw.githubusercontent.com/rdp/ffmpeg-windows-build-helpers/master/patches/md5sum.mac > md5sum  || exit 1
+      curl -4 $github/patches/md5sum.mac > md5sum  || exit 1
       chmod u+x ./md5sum
-      curl -4 https://raw.githubusercontent.com/rdp/ffmpeg-windows-build-helpers/master/patches/readlink.mac > readlink  || exit 1
+      curl -4 $github/patches/readlink.mac > readlink  || exit 1
       chmod u+x ./readlink
     fi
     export PATH=`pwd`:$PATH
