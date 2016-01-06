@@ -84,6 +84,7 @@ check_missing_packages () {
 
 
 intro() {
+  echo `date`
   cat <<EOL
      ##################### Welcome ######################
   Welcome to the ffmpeg cross-compile builder-helper script.
@@ -116,7 +117,6 @@ The resultant binary may not be distributable, but can be useful for in-house us
 }
 
 pick_compiler_flavors() {
-
   while [[ "$compiler_flavors" != [1-4] ]]; do
     if [[ -n "${unknown_opts[@]}" ]]; then
       echo -n 'Unknown option(s)'
@@ -144,9 +144,17 @@ EOF
   esac
 }
 
+# made into a method so I don't/don't have to download this script every time if only doing 32 bit builds...
+download_gcc_build_script() {
+    local zeranoe_script_name=$1
+    rm -f $zeranoe_script_name || exit 1
+    curl -4 https://raw.githubusercontent.com/rdp/ffmpeg-windows-build-helpers/master/patches/$zeranoe_script_name -O  || exit 1
+    chmod u+x $zeranoe_script_name
+}
+
 install_cross_compiler() {
-  if [[ -f "mingw-w64-i686/compiler.done" && -f "mingw-w64-x86_64/compiler.done" ]]; then
-   echo "MinGW-w64 compilers already installed, not re-installing..."
+  if [[ -f "cross_compilers/mingw-w64-i686/compiler.done" && -f "cross_compilers/mingw-w64-x86_64/compiler.done" ]]; then
+   echo "MinGW-w64 compilers both already installed, not re-installing..."
    return # early exit just assume they want both, don't even prompt :)
   fi
 
@@ -154,43 +162,42 @@ install_cross_compiler() {
     pick_compiler_flavors
   fi
 
-  if [[ $compiler_flavors == "win32" && -f "mingw-w64-i686/compiler.done" ]]; then
-    echo "win32 cross compiler already installed, not reinstalling"
-    return
-  fi
+  mkdir -p cross_compilers
+  cd cross_compilers
 
-  if [[ $compiler_flavors == "win64" && -f "mingw-w64-x86_64/compiler.done" ]]; then
-    echo "win64 cross compiler already installed, not reinstalling"
-    return
-  fi
+    unset CFLAGS # don't want these for the compiler itself since it creates executables to run on the local box (we have a parameter allowing them to set them for the script "all builds" basically)
+    # pthreads version to avoid having to use cvs for it
+    echo "starting to download and build cross compile version of gcc [requires working internet access] with thread count $gcc_cpu_count..."
+    echo ""
 
-  # if they get this far, they want a compiler that's not installed, I think...fire away! XXXX if 32 bit compiler installed, and request both, rebuilds 32...
+    # --disable-shared allows c++ to be distributed at all...which seemed necessary for some random dependency which happens to use/require c++...
+    local zeranoe_script_name=mingw-w64-build-3.6.7.local
+    # mingw-w64 git for updated tuner.h past 4.0.4
+    local zeranoe_script_options="--clean-build --mingw-w64-ver=git --disable-shared --default-configure  --pthreads-w32-ver=2-9-1 --cpu-count=$gcc_cpu_count --gcc-ver=5.3.0"
+    if [[ ($compiler_flavors == "win32" || $compiler_flavors == "multi") && ! -f "mingw-w64-i686/compiler.done" ]]; then
+      echo "building win32 cross compiler"
+      download_gcc_build_script $zeranoe_script_name
+      nice ./$zeranoe_script_name $zeranoe_script_options --build-type=win32 || exit 1 
+      touch mingw-w64-i686/compiler.done # assume success
+    fi
+    if [[ ($compiler_flavors == "win64" || $compiler_flavors == "multi") && ! -f "mingw-w64-x86_64/compiler.done" ]]; then
+      echo "building win64 x86_64 cross compiler"
+      download_gcc_build_script $zeranoe_script_name
+      nice ./$zeranoe_script_name $zeranoe_script_options --build-type=win64 || exit 1 
+      touch mingw-w64-x86_64/compiler.done # assume success :)
+    fi
 
-  local zeranoe_script_name=mingw-w64-build-3.6.7.local
-  rm -f $zeranoe_script_name || exit 1
-  curl -4 https://raw.githubusercontent.com/smorks/ffmpeg-windows-build-helpers/master/patches/$zeranoe_script_name -O  || exit 1
-  
-  chmod u+x $zeranoe_script_name
-  unset CFLAGS # don't want these for the compiler itself since it creates executables to run on the local box (we have a parameter allowing them to set them for the script "all builds" basically)
-  # pthreads version to avoid having to use cvs for it
-  echo "starting to download and build cross compile version of gcc [requires working internet access] with thread count $gcc_cpu_count..."
-  echo ""
-  # --disable-shared allows c++ to be distributed at all...which seemed necessary for some random dependency...
-  nice ./$zeranoe_script_name --clean-build --disable-shared --default-configure  --pthreads-w32-ver=2-9-1 --cpu-count=$gcc_cpu_count --build-type=$compiler_flavors --gcc-ver=5.3.0 || exit 1 
-  export CFLAGS=$original_cflags # reset it
-  if [[ ! -f mingw-w64-i686/bin/i686-w64-mingw32-gcc && ! -f mingw-w64-x86_64/bin/x86_64-w64-mingw32-gcc ]]; then
-    echo "no gcc cross compiler(s) seem built [?] (build failure [?]) recommend nuke sandbox dir (rm -rf sandbox) and try again!"
-    exit 1
-  fi
-  if [ -d mingw-w64-x86_64 ]; then
-    touch mingw-w64-x86_64/compiler.done
-  fi
-  if [ -d mingw-w64-i686 ]; then
-    touch mingw-w64-i686/compiler.done
-  fi
-  rm -f build.log
-  clear
-  echo "Ok, done building MinGW-w64 cross-compiler(s) successfully..."
+    if [[ ! -f mingw-w64-i686/bin/i686-w64-mingw32-gcc && ! -f mingw-w64-x86_64/bin/x86_64-w64-mingw32-gcc ]]; then
+      echo "no gcc cross compiler(s) seem to have been created [?] (build failure [?]) recommend nuke sandbox dir (rm -rf sandbox) and try again!"
+      exit 1
+    fi
+
+    rm -f build.log
+    export CFLAGS=$original_cflags # reset it back to what it was passed in as, via parameter :)
+  cd ..
+  echo "Done building (or already built) MinGW-w64 cross-compiler(s) successfully..."
+  echo `date`
+
 }
 
 # helper methods for downloading and building projects that can take generic input
@@ -297,6 +304,9 @@ do_configure() {
   if [ ! -f "$touch_name" ]; then
     make clean # just in case useful...try and cleanup stuff...possibly not useful
     # make uninstall # does weird things when run under ffmpeg src so disabled
+    if [ -f bootstrap ]; then
+      ./bootstrap
+    fi
     if [ -f bootstrap.sh ]; then
       ./bootstrap.sh
     fi
@@ -625,7 +635,7 @@ build_libbs2b() {
   unset ac_cv_func_malloc_0_nonnull
 }
 
-build_libgame-music-emu() {
+build_libgme_game_music_emu() {
   download_and_unpack_file  https://bitbucket.org/mpyne/game-music-emu/downloads/game-music-emu-0.6.0.tar.bz2 game-music-emu-0.6.0
   cd game-music-emu-0.6.0
     sed -i.bak "s|SHARED|STATIC|" gme/CMakeLists.txt
@@ -723,14 +733,19 @@ build_libflite() {
 }
 
 build_libgsm() {
-  download_and_unpack_file http://www.quut.com/gsm/gsm-1.0.13.tar.gz gsm-1.0-pl13
-  cd gsm-1.0-pl13
-  apply_patch https://raw.githubusercontent.com/rdp/ffmpeg-windows-build-helpers/master/patches/libgsm.patch # for openssl to work with it, I think?
-  # not do_make here since this actually fails [wrongly]
-  make $make_prefix_options INSTALL_ROOT=${mingw_w64_x86_64_prefix}
-  cp lib/libgsm.a $mingw_w64_x86_64_prefix/lib || exit 1
-  mkdir -p $mingw_w64_x86_64_prefix/include/gsm
-  cp inc/gsm.h $mingw_w64_x86_64_prefix/include/gsm || exit 1
+  download_and_unpack_file http://www.quut.com/gsm/gsm-1.0.14.tar.gz gsm-1.0-pl14
+  cd gsm-1.0-pl14
+    apply_patch https://raw.githubusercontent.com/rdp/ffmpeg-windows-build-helpers/master/patches/libgsm.patch
+    # for openssl to work with it, I think?
+    if [[ ! -f  $mingw_w64_x86_64_prefix/include/gsm/gsm.h ]]; then
+      # not do_make here since this actually fails [wrongly]
+      make $make_prefix_options INSTALL_ROOT=${mingw_w64_x86_64_prefix}
+      cp lib/libgsm.a $mingw_w64_x86_64_prefix/lib || exit 1
+      mkdir -p $mingw_w64_x86_64_prefix/include/gsm
+      cp inc/gsm.h $mingw_w64_x86_64_prefix/include/gsm || exit 1
+    else
+      echo "already installed gsm"
+    fi
   cd ..
 }
 
@@ -787,7 +802,7 @@ build_libopencore() {
 build_libdlfcn() {
   do_git_checkout https://github.com/dlfcn-win32/dlfcn-win32.git dlfcn-win32 
   cd dlfcn-win32
-    ./configure --disable-shared --enable-static --cross-prefix=$cross_prefix --prefix=$mingw_w64_x86_64_prefix
+    do_configure "--disable-shared --enable-static --cross-prefix=$cross_prefix --prefix=$mingw_w64_x86_64_prefix" # rejects some normal cross compile options so custom here
     do_make_and_make_install
   cd ..
 }
@@ -910,7 +925,7 @@ build_bzlib2() {
 }
 
 build_zlib() {
-  download_and_unpack_file http://zlib.net/zlib-1.2.8.tar.gz zlib-1.2.8
+  download_and_unpack_file http://sourceforge.net/projects/libpng/files/zlib/1.2.8/zlib-1.2.8.tar.gz/download zlib-1.2.8
   cd zlib-1.2.8
     do_configure "--static --prefix=$mingw_w64_x86_64_prefix"
     do_make_and_make_install "$make_prefix_options ARFLAGS=rcs"
@@ -983,9 +998,9 @@ build_libnvenc() {
     mkdir nvenc
     cd nvenc
       echo "installing nvenc [nvidia gpu assisted encoder]"
-      curl -4 http://developer.download.nvidia.com/compute/nvenc/v5.0/nvenc_5.0.1_sdk.zip -O -L || exit 1
-      unzip nvenc_5.0.1_sdk.zip
-      cp nvenc_5.0.1_sdk/Samples/common/inc/* $mingw_w64_x86_64_prefix/include
+      curl -4 http://developer.download.nvidia.com/assets/cuda/files/nvidia_video_sdk_6.0.1.zip -O -L || exit 1
+      unzip nvidia_video_sdk_6.0.1.zip
+      cp nvidia_video_sdk_6.0.1/Samples/common/inc/* $mingw_w64_x86_64_prefix/include
     cd ..
   else
     echo "already installed nvenc"
@@ -1088,7 +1103,6 @@ build_zvbi() {
 #   there is no .pc for zvbi, so we add --extra-libs=-lpng to FFmpegs configure TODO there is a .pc file it just doesn't get installed [?]
 #   sed -i.bak 's/-lzvbi *$/-lzvbi -lpng/' "$PKG_CONFIG_PATH/zvbi.pc"
   cd ..
-  export CFLAGS=$original_cflags # it was set to the win32-pthreads ones, so revert it
 }
 
 build_libmodplug() {
@@ -1100,14 +1114,16 @@ build_libmodplug() {
 }
 
 build_libcaca() {
-  download_and_unpack_file https://distfiles.macports.org/libcaca/libcaca-0.99.beta19.tar.gz libcaca-0.99.beta19
-  cd libcaca-0.99.beta19
-  cd caca
-    sed -i.bak "s/int vsnprintf/int vnsprintf_disabled/" *.c # beta19 bug...
-    sed -i.bak "s/__declspec(dllexport)//g" *.h # get rid of the declspec lines otherwise the build will fail for undefined symbols
-    sed -i.bak "s/__declspec(dllimport)//g" *.h 
-  cd ..
-  generic_configure_make_install "--libdir=$mingw_w64_x86_64_prefix/lib --disable-cxx --disable-csharp --disable-java --disable-python --disable-ruby --disable-imlib2 --disable-doc"
+  # beta19 and git were non xp friendly
+  download_and_unpack_file http://pkgs.fedoraproject.org/repo/extras/libcaca/libcaca-0.99.beta18.tar.gz/93d35dbdb0527d4c94df3e9a02e865cc/libcaca-0.99.beta18.tar.gz libcaca-0.99.beta18
+  cd libcaca-0.99.beta18
+    cd caca
+      sed -i.bak "s/int vsnprintf/int vnsprintf_disabled/" *.c # doesn't compile with this in it double defined uh guess
+      sed -i.bak "s/__declspec(dllexport)//g" *.h # get rid of the declspec lines otherwise the build will fail for undefined symbols
+      sed -i.bak "s/__declspec(dllimport)//g" *.h 
+    cd ..
+    generic_configure "--libdir=$mingw_w64_x86_64_prefix/lib --disable-cxx --disable-csharp --disable-java --disable-python --disable-ruby --disable-imlib2 --disable-doc"
+    do_make_and_make_install
   cd ..
 }
 
@@ -1364,11 +1380,12 @@ build_ffmpeg() {
   do_make_and_make_install # install ffmpeg to get libavcodec libraries to be used as dependencies for other things, like vlc [XXX make this a parameter?] or install shared to a local dir
 
   # build ismindex.exe, too, just for fun 
-  make tools/ismindex.exe
+  make tools/ismindex.exe || exit 1
 
   sed -i.bak 's/-lavutil -lm.*/-lavutil -lm -lpthread/' "$PKG_CONFIG_PATH/libavutil.pc" # XXX patch ffmpeg itself...
   sed -i.bak 's/-lswresample -lm.*/-lswresample -lm -lsoxr/' "$PKG_CONFIG_PATH/libswresample.pc" # XXX patch ffmpeg
   echo "Done! You will find $bits_target bit $shared non_free=$non_free binaries in $(pwd)/*.exe"
+  echo `date`
   cd ..
 }
 
@@ -1401,7 +1418,7 @@ build_dependencies() {
   build_libbs2b # needs libsndfile
   build_wavpack
   build_libdcadec
-  build_libgame-music-emu
+  build_libgme_game_music_emu
   build_libwebp
   build_libutvideo
   #build_libflite # too big for distro...though may still be useful
@@ -1560,7 +1577,7 @@ while true; do
     --disable-nonfree=* ) disable_nonfree="${1#*=}"; shift ;;
     -a         ) build_mplayer=y; build_libmxf=y; build_mp4box=y; build_vlc=y; build_ffmpeg_shared=y; high_bitdepth=y; build_ffmpeg_static=y; 
                  disable_nonfree=n; git_get_latest=y; shift ;;
-    -d         ) gcc_cpu_count=$cpu_count; disable_nonfree="y"; sandbox_ok="y"; compiler_flavors="multi"; git_get_latest="n" ; shift ;;
+    -d         ) gcc_cpu_count=$cpu_count; disable_nonfree="y"; sandbox_ok="y"; compiler_flavors="win32"; git_get_latest="n" ; shift ;;
     --compiler-flavors=* ) compiler_flavors="${1#*=}"; shift ;;
     --build-ffmpeg-static=* ) build_ffmpeg_static="${1#*=}"; shift ;;
     --build-ffmpeg-shared=* ) build_ffmpeg_shared="${1#*=}"; shift ;;
@@ -1580,10 +1597,10 @@ export PKG_CONFIG_LIBDIR= # disable pkg-config from finding [and using] normal l
 
 if [[ $OSTYPE == darwin* ]]; then 
   # mac add some helper scripts
-  if [[ ! -d mac_bin ]]; then
-    mkdir mac_bin
+  if [[ ! -d mac_helper_scripts ]]; then
+    mkdir mac_helper_scripts
   fi
-  cd mac_bin
+  cd mac_helper_scripts
     if [[ ! -x readlink ]]; then
       # make some scripts behave like linux...
       curl -4 https://raw.githubusercontent.com/rdp/ffmpeg-windows-build-helpers/master/patches/md5sum.mac > md5sum  || exit 1
@@ -1596,14 +1613,14 @@ if [[ $OSTYPE == darwin* ]]; then
 fi
 
 original_path="$PATH"
-if [ -d "mingw-w64-i686" ]; then # they installed a 32-bit compiler, build 32-bit everything
+if [[ $compiler_flavors == "multi" || $compiler_flavors == "win32" ]]; then
   echo "Building 32-bit ffmpeg..."
   host_target='i686-w64-mingw32'
-  mingw_w64_x86_64_prefix="$cur_dir/mingw-w64-i686/$host_target"
-  export PATH="$cur_dir/mingw-w64-i686/bin:$original_path"
-  export PKG_CONFIG_PATH="$cur_dir/mingw-w64-i686/i686-w64-mingw32/lib/pkgconfig"
+  mingw_w64_x86_64_prefix="$cur_dir/cross_compilers/mingw-w64-i686/$host_target"
+  export PATH="$cur_dir/cross_compilers/mingw-w64-i686/bin:$original_path"
+  export PKG_CONFIG_PATH="$cur_dir/cross_compilers/mingw-w64-i686/i686-w64-mingw32/lib/pkgconfig"
   bits_target=32
-  cross_prefix="$cur_dir/mingw-w64-i686/bin/i686-w64-mingw32-"
+  cross_prefix="$cur_dir/cross_compilers/mingw-w64-i686/bin/i686-w64-mingw32-"
   make_prefix_options="CC=${cross_prefix}gcc AR=${cross_prefix}ar PREFIX=$mingw_w64_x86_64_prefix RANLIB=${cross_prefix}ranlib LD=${cross_prefix}ld STRIP=${cross_prefix}strip CXX=${cross_prefix}g++"
   mkdir -p win32
   cd win32
@@ -1612,15 +1629,15 @@ if [ -d "mingw-w64-i686" ]; then # they installed a 32-bit compiler, build 32-bi
   cd ..
 fi
 
-if [ -d "mingw-w64-x86_64" ]; then # they installed a 64-bit compiler, build 64-bit everything
-  echo "Building 64-bit ffmpeg..."
+if [[ $compiler_flavors == "multi" || $compiler_flavors == "win64" ]]; then
+  echo "**************Building 64-bit ffmpeg..." # make it have a bit header to you can see when 32 bit is done more easily
   host_target='x86_64-w64-mingw32'
-  mingw_w64_x86_64_prefix="$cur_dir/mingw-w64-x86_64/$host_target"
-  export PATH="$cur_dir/mingw-w64-x86_64/bin:$original_path"
-  export PKG_CONFIG_PATH="$mingw_w64_x86_64_prefix/lib/pkgconfig"
+  mingw_w64_x86_64_prefix="$cur_dir/cross_compilers/mingw-w64-x86_64/$host_target"
+  export PATH="$cur_dir/cross_compilers/mingw-w64-x86_64/bin:$original_path"
+  export PKG_CONFIG_PATH="$cur_dir/cross_compilers/mingw-w64-x86_64/x86_64-w64-mingw32/lib/pkgconfig"
   mkdir -p x86_64
   bits_target=64
-  cross_prefix="$cur_dir/mingw-w64-x86_64/bin/x86_64-w64-mingw32-"
+  cross_prefix="$cur_dir/cross_compilers/mingw-w64-x86_64/bin/x86_64-w64-mingw32-"
   make_prefix_options="CC=${cross_prefix}gcc AR=${cross_prefix}ar PREFIX=$mingw_w64_x86_64_prefix RANLIB=${cross_prefix}ranlib LD=${cross_prefix}ld STRIP=${cross_prefix}strip CXX=${cross_prefix}g++"
   cd x86_64
   build_dependencies

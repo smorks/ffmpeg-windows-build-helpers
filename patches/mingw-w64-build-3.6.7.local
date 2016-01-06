@@ -579,8 +579,6 @@ if ! check_pkg_touch_success 'binutils' "$binutils_ver" 'configure' "$mingw_w64_
   mkdir "$mingw_w64_target"
   cd "$mingw_w64_target" || print_error
   build_progress 'binutils' 'Configuring'
-  echo "hello1"
-  echo "hello2" >(build_log)
   echo -- hello3 CC=gcc "../../source/binutils-$binutils_ver/configure" --build="$system_type" --target="$mingw_w64_target" "${static_build[@]}" "${disable_nls[@]}" --disable-multilib --with-sysroot="$mingw_w64_prefix" --prefix="$mingw_w64_prefix" > >(build_log) 2>&1
   CC=gcc "../../source/binutils-$binutils_ver/configure" --build="$system_type" --target="$mingw_w64_target" "${static_build[@]}" "${disable_nls[@]}" --disable-multilib --with-sysroot="$mingw_w64_prefix" --prefix="$mingw_w64_prefix" > >(build_log) 2>&1 || print_error
   build_progress 'done'
@@ -864,7 +862,7 @@ system_type="$(sh config.guess)"
 
 cd "$mingw_w64_source_dir" || print_error
 if [[ "$mingw_w64_ver" = 'git' ]]; then
-  git_dl "mingw-w64" "git://git.code.sf.net/p/mingw-w64/mingw-w64"
+  git_dl "mingw-w64" "http://git.code.sf.net/p/mingw-w64/mingw-w64"
 else
   if [[ -d "mingw-w64-$mingw_w64_release_ver" && "$allow_overwrite" != 'yes' &&  "$prefix_present" = 'yes' ]]; then
     if ! yes_no_sel "MinGW-w64 is already the latest version, continue with the build anyway? You can set this option with: '--allow-overwrite', see '--help' for more information."; then
