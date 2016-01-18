@@ -157,6 +157,9 @@ download_gcc_build_script() {
 install_cross_compiler() {
   if [[ -f "cross_compilers/mingw-w64-i686/compiler.done" && -f "cross_compilers/mingw-w64-x86_64/compiler.done" ]]; then
    echo "MinGW-w64 compilers both already installed, not re-installing..."
+   if [[ -z $compiler_flavors ]]; then
+     compiler_flavors=multi
+   fi
    return # early exit just assume they want both, don't even prompt :)
   fi
 
@@ -174,8 +177,8 @@ install_cross_compiler() {
 
     # --disable-shared allows c++ to be distributed at all...which seemed necessary for some random dependency which happens to use/require c++...
     local zeranoe_script_name=mingw-w64-build-3.6.7.local
-    # mingw-w64 git for updated tuner.h past 4.0.4
-    local zeranoe_script_options="--clean-build --mingw-w64-ver=git --disable-shared --default-configure  --pthreads-w32-ver=2-9-1 --cpu-count=$gcc_cpu_count --gcc-ver=5.3.0"
+    # add --mingw-w64-ver=git for updated tuner.h [dshow dtv] past 4.0.4 TODO
+    local zeranoe_script_options="--clean-build --disable-shared --default-configure  --pthreads-w32-ver=2-9-1 --cpu-count=$gcc_cpu_count --gcc-ver=5.3.0"
     if [[ ($compiler_flavors == "win32" || $compiler_flavors == "multi") && ! -f "mingw-w64-i686/compiler.done" ]]; then
       echo "building win32 cross compiler"
       download_gcc_build_script $zeranoe_script_name
@@ -259,9 +262,9 @@ do_git_checkout() {
 
     if [[ -z $desired_branch ]]; then
       if [[ $git_get_latest = "y" ]]; then
-        echo "Updating to latest $to_dir version... $desired_branch"
+        echo "Updating to latest $to_dir git version [origin/master]..."
         git fetch
-        git merge origin/master
+        git merge origin/master || exit 1
       else
         echo "not doing git get latest pull for latest code $to_dir"
       fi
@@ -269,7 +272,7 @@ do_git_checkout() {
       if [[ $git_get_latest = "y" ]]; then
         echo "Doing git fetch $to_dir in case it affects the desired branch [$desired_branch]"
         git fetch
-        git merge $desired_branch
+        git merge $desired_branch || exit 1
       else
         echo "not doing git fetch $to_dir to see if it affected desired branch [$desired_branch]"
       fi
@@ -280,7 +283,7 @@ do_git_checkout() {
      echo "got upstream changes, forcing re-configure."
      rm -f already*
     else
-     echo "this pull got no new upstream changes, not forcing re-configure..."
+     echo "this pull got no new upstream changes, not forcing re-configure... (already at $new_git_version)"
     fi 
     cd ..
   fi
@@ -312,8 +315,11 @@ do_configure() {
     if [ -f bootstrap.sh ]; then
       ./bootstrap.sh
     fi
+    if [[ ! -f $configure_name ]]; then
+      autoreconf -fiv # a handful of them require this  to create ./configure :|
+    fi
     rm -f already_* # reset
-    echo "configuring $english_name ($PWD) as $ PATH=$PATH $configure_name $configure_options $LDFLAGS $CFLAGS"
+    echo "configuring $english_name ($PWD) as $ PATH=$path_addition:$original_path $configure_name $configure_options"
     nice "$configure_name" $configure_options || exit 1
     touch -- "$touch_name"
     make clean # just in case, but sometimes useful when files change, etc.
@@ -329,7 +335,7 @@ do_make() {
 
   if [ ! -f $touch_name ]; then
     echo
-    echo "making $cur_dir2 as $ PATH=$PATH make $extra_make_options"
+    echo "making $cur_dir2 as $ PATH=$path_addition:\$PATH make $extra_make_options"
     echo
     if [ ! -f configure ]; then
       make clean # just in case helpful if old junk left around and this is a 're make' and wasn't cleaned at reconfigure time
@@ -357,7 +363,7 @@ do_make_install() {
   fi
   local touch_name=$(get_small_touchfile_name already_ran_make_install "$make_install_options")
   if [ ! -f $touch_name ]; then
-    echo "make installing $(pwd) as $ PATH=$PATH make $make_install_options"
+    echo "make installing $(pwd) as $ PATH=$path_addition:\$PATH make $make_install_options"
     nice make $make_install_options || exit 1
     touch $touch_name || exit 1
   fi
@@ -370,7 +376,7 @@ do_cmake_and_install() {
   if [ ! -f $touch_name ]; then
     rm -f already_* # reset so that make will run again if option just changed
     local cur_dir2=$(pwd)
-    echo doing cmake in $cur_dir2 with PATH=$PATH  with extra_args=$extra_args like this:
+    echo doing cmake in $cur_dir2 with PATH=$path_addition:\$PATH with extra_args=$extra_args like this:
     echo cmake –G”Unix Makefiles” . -DENABLE_STATIC_RUNTIME=1 -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_RANLIB=${cross_prefix}ranlib -DCMAKE_C_COMPILER=${cross_prefix}gcc -DCMAKE_CXX_COMPILER=${cross_prefix}g++ -DCMAKE_RC_COMPILER=${cross_prefix}windres -DCMAKE_INSTALL_PREFIX=$mingw_w64_x86_64_prefix $extra_args
     cmake –G”Unix Makefiles” . -DENABLE_STATIC_RUNTIME=1 -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_RANLIB=${cross_prefix}ranlib -DCMAKE_C_COMPILER=${cross_prefix}gcc -DCMAKE_CXX_COMPILER=${cross_prefix}g++ -DCMAKE_RC_COMPILER=${cross_prefix}windres -DCMAKE_INSTALL_PREFIX=$mingw_w64_x86_64_prefix $extra_args || exit 1
     touch $touch_name || exit 1
@@ -380,6 +386,10 @@ do_cmake_and_install() {
 
 apply_patch() {
  local url=$1
+ local patch_type=$2
+ if [[ -z $patch_type ]]; then
+   patch_type="-p0"
+ fi
  local patch_name=$(basename $url)
  local patch_done_name="$patch_name.done"
  if [[ ! -e $patch_done_name ]]; then
@@ -388,7 +398,7 @@ apply_patch() {
    fi
    curl -4 $url -O || exit 1
    echo "applying patch $patch_name"
-   patch -p0 < "$patch_name" || exit 1
+   patch $patch_type < "$patch_name" || exit 1
    touch $patch_done_name || exit 1
    rm -f already_ran* # if it's a new patch, reset everything too, in case it's really really really new
  else
@@ -431,12 +441,13 @@ generic_download_and_install() {
   local extra_configure_options="$3"
   download_and_unpack_file $url $english_name
   cd $english_name || exit "needs 2 parameters"
-  generic_configure_make_install "$extra_configure_options"
+  generic_configure "$extra_configure_options"
+  do_make_and_make_install
   cd ..
 }
 
 generic_configure_make_install() {
-  generic_configure "$1"
+  generic_configure # no parameters, force them to break it up :)
   do_make_and_make_install
 }
 
@@ -669,8 +680,7 @@ build_libopenjpeg() {
   download_and_unpack_file http://sourceforge.net/projects/openjpeg.mirror/files/1.5.2/openjpeg-1.5.2.tar.gz/download openjpeg-1.5.2
   cd openjpeg-1.5.2
     export CFLAGS="$CFLAGS -DOPJ_STATIC" # see https://github.com/rdp/ffmpeg-windows-build-helpers/issues/37
-    generic_configure 
-    do_make_and_make_install
+    generic_configure_make_install
     export CFLAGS=$original_cflags # reset it
   cd ..
 }
@@ -776,8 +786,7 @@ build_libdvdnav() {
   if [[ ! -f ./configure ]]; then
     ./autogen.sh
   fi
-  generic_configure
-  do_make_and_make_install 
+  generic_configure_make_install
   sed -i.bak 's/-ldvdnav.*/-ldvdnav -ldvdread -ldvdcss -lpsapi/' "$PKG_CONFIG_PATH/dvdnav.pc" # psapi for dlfcn ... [hrm?]
   cd ..
 }
@@ -846,16 +855,14 @@ build_libfribidi() {
   download_and_unpack_file http://fribidi.org/download/fribidi-0.19.4.tar.bz2 fribidi-0.19.4
   cd fribidi-0.19.4
     # make it export symbols right...
-    apply_patch $github/patches/fribidi.diff
-    generic_configure
-    do_make_and_make_install
+    apply_patch https://raw.githubusercontent.com/rdp/ffmpeg-windows-build-helpers/master/patches/fribidi.diff
+    generic_configure_make_install
   cd ..
 
   #do_git_checkout http://anongit.freedesktop.org/git/fribidi/fribidi.git fribidi_git
   #cd fribidi_git
   #  ./bootstrap # couldn't figure out how to make this work...
-  #  generic_configure
-  #  do_make_and_make_install
+  #  generic_configure_make_install
   #cd ..
 }
 
@@ -1039,8 +1046,7 @@ build_iconv() {
   download_and_unpack_file http://ftp.gnu.org/pub/gnu/libiconv/libiconv-1.14.tar.gz libiconv-1.14
   cd libiconv-1.14
     export CFLAGS=-O2 
-    generic_configure
-    do_make_and_make_install
+    generic_configure_make_install
     unset CFLAGS
   cd ..
 }
@@ -1152,9 +1158,7 @@ build_lua() {
 build_libquvi() {
   download_and_Unpack_file http://sourceforge.net/projects/quvi/files/0.9/libquvi/libquvi-0.9.4.tar.xz/download libquvi-0.9.4
   cd libquvi-0.9.4
-    generic_configure
-    do_make
-    do_make_and_make_install
+    generic_configure_make_install
   cd ..
 }
 
@@ -1175,6 +1179,22 @@ build_vidstab() {
   cd vid.stab
     sed -i.bak "s/SHARED/STATIC/g" CMakeLists.txt # static build-ify
     do_cmake_and_install
+  cd ..
+}
+
+build_libdvbtee() {
+  # currently fails to compile with mignw :| [so disabled]
+  do_git_checkout https://github.com/mkrufky/libdvbtee.git libdvbtee
+  cd libdvbtee
+    # checkout submodule
+    if [ ! -e libdvbpsi/bootstrap ]; then
+      rm -rf libdvbpsi # remove placeholder
+      do_git_checkout https://github.com/mkrufky/libdvbpsi.git libdvbpsi
+      cd libdvbpsi
+        generic_configure_make_install # library dependency apparently...
+      cd ..
+    fi
+    generic_configure_make_install 
   cd ..
 }
 
@@ -1358,6 +1378,7 @@ build_ffmpeg() {
     # libfaac deemed too poor quality and becomes the default if included -- add it in and uncomment the build_faac line to include it, if anybody ever wants it... 
     # To use fdk-aac in VLC, we need to change FFMPEG's default (aac), but I haven't found how to do that... So I disabled it. This could be an new option for the script? (was --disable-decoder=aac )
     # other possible options: --enable-openssl [unneeded since we use gnutls] --enable-libaacplus [just use fdk-aac only to avoid collision]
+    #  apply_patch https://raw.githubusercontent.com/rdp/ffmpeg-windows-build-helpers/master/patches/nvresize2.patch "-p1" # uncomment if you want to test nvresize filter [et al] http://ffmpeg.org/pipermail/ffmpeg-devel/2015-November/182781.html patch worked with 7ab37cae34b3845
   fi
 
   if [[ "$native_build" = "y" ]]; then
@@ -1577,9 +1598,9 @@ while true; do
        export CFLAGS="${1#*=}"; original_cflags="${1#*=}"; echo "setting cflags as $original_cflags"; shift ;;
     --build-vlc=* ) build_vlc="${1#*=}"; shift ;;
     --disable-nonfree=* ) disable_nonfree="${1#*=}"; shift ;;
-    -a         ) build_mplayer=y; build_libmxf=y; build_mp4box=y; build_vlc=y; build_ffmpeg_shared=y; high_bitdepth=y; build_ffmpeg_static=y; 
-                 disable_nonfree=n; git_get_latest=y; shift ;;
-    -d         ) gcc_cpu_count=$cpu_count; disable_nonfree="y"; sandbox_ok="y"; compiler_flavors="win32"; git_get_latest="n" ; shift ;;
+    -a         ) compiler_flavors="multi"; build_mplayer=y; build_libmxf=y; build_mp4box=y; build_vlc=y; build_ffmpeg_shared=y; high_bitdepth=y; build_ffmpeg_static=y; 
+                 disable_nonfree=n; git_get_latest=y; sandbox_ok="y"; build_intel_qsv="y"; shift ;;
+    -d         ) gcc_cpu_count=$cpu_count; disable_nonfree="y"; sandbox_ok="y"; compiler_flavors="win32"; git_get_latest="n"; shift ;;
     --compiler-flavors=* ) compiler_flavors="${1#*=}"; shift ;;
     --build-ffmpeg-static=* ) build_ffmpeg_static="${1#*=}"; shift ;;
     --build-ffmpeg-shared=* ) build_ffmpeg_shared="${1#*=}"; shift ;;
@@ -1619,7 +1640,8 @@ if [[ $compiler_flavors == "multi" || $compiler_flavors == "win32" ]]; then
   echo "Building 32-bit ffmpeg..."
   host_target='i686-w64-mingw32'
   mingw_w64_x86_64_prefix="$cur_dir/cross_compilers/mingw-w64-i686/$host_target"
-  export PATH="$cur_dir/cross_compilers/mingw-w64-i686/bin:$original_path"
+  path_addition="$cur_dir/cross_compilers/mingw-w64-i686/bin"
+  export PATH="$path_addition:$original_path"
   export PKG_CONFIG_PATH="$cur_dir/cross_compilers/mingw-w64-i686/i686-w64-mingw32/lib/pkgconfig"
   bits_target=32
   cross_prefix="$cur_dir/cross_compilers/mingw-w64-i686/bin/i686-w64-mingw32-"
@@ -1635,7 +1657,8 @@ if [[ $compiler_flavors == "multi" || $compiler_flavors == "win64" ]]; then
   echo "**************Building 64-bit ffmpeg..." # make it have a bit header to you can see when 32 bit is done more easily
   host_target='x86_64-w64-mingw32'
   mingw_w64_x86_64_prefix="$cur_dir/cross_compilers/mingw-w64-x86_64/$host_target"
-  export PATH="$cur_dir/cross_compilers/mingw-w64-x86_64/bin:$original_path"
+  path_addition="$cur_dir/cross_compilers/mingw-w64-x86_64/bin"
+  export PATH="$path_addition:$original_path"
   export PKG_CONFIG_PATH="$cur_dir/cross_compilers/mingw-w64-x86_64/x86_64-w64-mingw32/lib/pkgconfig"
   mkdir -p x86_64
   bits_target=64
