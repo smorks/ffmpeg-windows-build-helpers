@@ -156,7 +156,7 @@ download_gcc_build_script() {
 
 install_cross_compiler() {
   if [[ -f "cross_compilers/mingw-w64-i686/compiler.done" && -f "cross_compilers/mingw-w64-x86_64/compiler.done" ]]; then
-   echo "MinGW-w64 compilers both already installed, not re-installing..."
+   echo "MinGW-w64 compilers both already installed, not re-installing, selecting multi build (both win32 and win64)..."
    if [[ -z $compiler_flavors ]]; then
      compiler_flavors=multi
    fi
@@ -232,11 +232,11 @@ update_to_desired_git_branch_or_revision() {
   local to_dir="$1"
   local desired_branch="$2" # or tag or whatever...
   if [ -n "$desired_branch" ]; then
-   pushd $to_dir
+    pushd $to_dir
       echo "git checkout'ing $desired_branch"
       git checkout "$desired_branch" || exit 1 # if this fails, nuke the directory first...
-      git merge "$desired_branch" || exit 1 # this would be if they want to checkout a revision number, not a branch...
-   popd # in case it's a cd to ., don't want to cd to .. here...since sometimes we call it with a '.'
+      git merge "$desired_branch" || exit 1 # this would satisfy the case if they want to checkout a revision number, not a branch...
+    popd # in case it's a cd to ., don't want to cd to .. here...since sometimes we call it with a '.'
   fi
 }
 
@@ -272,7 +272,8 @@ do_git_checkout() {
       if [[ $git_get_latest = "y" ]]; then
         echo "Doing git fetch $to_dir in case it affects the desired branch [$desired_branch]"
         git fetch
-        git merge $desired_branch || exit 1
+        # I think unneeded, and it caused the annoying merge commit message commit pop up when tracking branches...maybe needed a checkout first?
+        # git merge $desired_branch || exit 1
       else
         echo "not doing git fetch $to_dir to see if it affected desired branch [$desired_branch]"
       fi
@@ -550,15 +551,21 @@ build_libopenh264() {
   cd ..
 }
 
-x264_profile_guided=n # or y -- haven't gotten this working yet...
 
 build_libx264() {
-  do_git_checkout "http://repo.or.cz/r/x264.git" "x264" "origin/stable"
-  cd x264
-  local configure_flags="--host=$host_target --enable-static --cross-prefix=$cross_prefix --prefix=$mingw_w64_x86_64_prefix --enable-strip --disable-lavf" # --enable-win32thread --enable-debug is another useful option here.
-  
+  local x264_profile_guided=n # or y -- haven't gotten this proven yet...TODO
   if [[ $high_bitdepth == "y" ]]; then
-    configure_flags="$configure_flags --bit-depth=10" # Enable 10 bits (main10) per pixels profile.
+    local checkout_dir="x264_high_bitdepth"
+  else
+    local checkout_dir="x264"
+  fi
+  
+  do_git_checkout "http://repo.or.cz/r/x264.git" $checkout_dir "origin/stable"
+  cd $checkout_dir
+
+  local configure_flags="--host=$host_target --enable-static --cross-prefix=$cross_prefix --prefix=$mingw_w64_x86_64_prefix --enable-strip --disable-lavf" # --enable-win32thread --enable-debug is another useful option here.
+  if [[ $high_bitdepth == "y" ]]; then
+    configure_flags="$configure_flags --bit-depth=10" # Enable 10 bits (main10) per pixels profile. possibly affects other profiles as well (?)
   fi
   
   if [[ $x264_profile_guided = y ]]; then
@@ -930,12 +937,7 @@ build_gnutls() {
   sed -i.bak 's/-lgnutls *$/-lgnutls -lnettle -lhogweed -lgmp -lcrypt32 -lws2_32 -liconv/' "$PKG_CONFIG_PATH/gnutls.pc"
 }
 
-build_libtasn() {
-  generic_download_make_install http://ftp.gnu.org/gnu/libtasn1/libtasn1-4.7.tar.gz
-}
-
 build_libnettle() {
-  build_libtasn # dependency
   download_and_unpack_file https://ftp.gnu.org/gnu/nettle/nettle-3.1.tar.gz
   cd nettle-3.1
     generic_configure "--disable-openssl --with-included-libtasn1" # in case we have both gnutls and openssl, just use gnutls [except that gnutls uses this so...huh? https://github.com/rdp/ffmpeg-windows-build-helpers/issues/25#issuecomment-28158515
@@ -1203,19 +1205,30 @@ build_libcurl() {
   generic_download_and_install http://curl.haxx.se/download/curl-7.46.0.tar.gz
 }
 
+build_libhdhomerun() {
+  exit 1 # still broken unfortunately, for cross compile :|
+  download_and_unpack_file http://download.silicondust.com/hdhomerun/libhdhomerun_20150826.tgz libhdhomerun
+  cd libhdhomerun
+    do_make CROSS_COMPILE=$cross_prefix  OS=Windows_NT
+  cd ..
+  exit 1
+}
+
 build_libdvbtee() {
   build_libcurl # it "can use this" so why not
-  do_git_checkout https://github.com/mkrufky/libdvbtee.git libdvbtee origin/win # win compat branch
+#  build_libhdhomerun # broken :|
+  do_git_checkout https://github.com/mkrufky/libdvbtee.git libdvbtee
   cd libdvbtee
     # checkout its submodule
     if [ ! -e libdvbpsi/bootstrap ]; then
       rm -rf libdvbpsi # remove placeholder
       do_git_checkout https://github.com/mkrufky/libdvbpsi.git libdvbpsi
       cd libdvbpsi
-        generic_configure_make_install # library dependency submodule...
+        generic_configure_make_install # library dependency submodule... TODO don't install it, just leave it local :)
       cd ..
     fi
-    generic_configure_make_install 
+    generic_configure
+    do_make # not install since don't have a dependency on the library
   cd ..
 }
 
@@ -1382,14 +1395,14 @@ build_ffmpeg() {
   fi
 
   init_options="--arch=$arch --target-os=mingw32 --cross-prefix=$cross_prefix --pkg-config=pkg-config --disable-w32threads"
-  config_options="$init_options --enable-gpl --enable-libsoxr --enable-fontconfig --enable-libass --enable-libutvideo --enable-libbluray --enable-iconv --enable-libtwolame --extra-cflags=-DLIBTWOLAME_STATIC --enable-libzvbi --enable-libcaca --enable-libmodplug --extra-libs=-lstdc++ --extra-libs=-lpng --enable-libvidstab --enable-libx265 --enable-decklink --extra-libs=-loleaut32 --enable-libx264 --enable-libxvid --enable-libmp3lame --enable-version3 --enable-zlib --enable-librtmp --enable-libvorbis --enable-libtheora --enable-libspeex --enable-libopenjpeg --enable-gnutls --enable-libgsm --enable-libfreetype --enable-libopus --enable-frei0r --enable-filter=frei0r --enable-libvo-aacenc --enable-bzlib --enable-libxavs --enable-libopencore-amrnb --enable-libopencore-amrwb --enable-libvo-amrwbenc --enable-libschroedinger --enable-libvpx --enable-libilbc --enable-libwavpack --enable-libwebp --enable-libgme --enable-dxva2 --enable-libdcadec --enable-avisynth --enable-gray"
+  config_options="$init_options --enable-gpl --enable-libsoxr --enable-fontconfig --enable-libass --enable-libutvideo --enable-libbluray --enable-iconv --enable-libtwolame --extra-cflags=-DLIBTWOLAME_STATIC --enable-libzvbi --enable-libcaca --enable-libmodplug --extra-libs=-lstdc++ --extra-libs=-lpng --enable-libvidstab --enable-libx265 --enable-decklink --extra-libs=-loleaut32 --enable-libx264 --enable-libxvid --enable-libmp3lame --enable-version3 --enable-zlib --enable-librtmp --enable-libvorbis --enable-libtheora --enable-libspeex --enable-libopenjpeg --enable-gnutls --enable-libgsm --enable-libfreetype --enable-libopus --enable-frei0r --enable-filter=frei0r --enable-bzlib --enable-libxavs --enable-libopencore-amrnb --enable-libopencore-amrwb --enable-libvo-amrwbenc --enable-libschroedinger --enable-libvpx --enable-libilbc --enable-libwavpack --enable-libwebp --enable-libgme --enable-dxva2 --enable-libdcadec --enable-avisynth --enable-gray" 
   # other possibilities (you'd need to also uncomment the call to their build method): 
-  # --enable-w32threads # [worse UDP than pthreads, so not using that] 
-  # --enable-libflite # [too big so not enabled]
+  #   --enable-w32threads # [worse UDP than pthreads, so not using that] 
+  #   --enable-libflite # [too big so not enabled]
   if [[ $build_intel_qsv = y ]]; then
-    config_options="$config_options --enable-libmfx" # [not windows xp friendly]
+    config_options="$config_options --enable-libmfx" # [note, not windows xp friendly]
   fi
-  config_options="$config_options --extra-libs=-lpsapi" # dlfcn [frei0r?] requires this, has no .pc file XXX put in frei0r.pc? ...
+  config_options="$config_options --extra-libs=-lpsapi" # dlfcn [frei0r?] requires this, has no .pc file should put in frei0r.pc? ...
   config_options="$config_options --extra-cflags=$CFLAGS" # --extra-cflags is not needed here, but adds it to the console output which I like for debugging purposes
 
   config_options="$config_options $postpend_configure_opts"
@@ -1664,7 +1677,7 @@ fi
 
 original_path="$PATH"
 if [[ $compiler_flavors == "multi" || $compiler_flavors == "win32" ]]; then
-  echo "Building 32-bit ffmpeg..."
+  echo "Starting 32-bit builds..."
   host_target='i686-w64-mingw32'
   mingw_w64_x86_64_prefix="$cur_dir/cross_compilers/mingw-w64-i686/$host_target"
   path_addition="$cur_dir/cross_compilers/mingw-w64-i686/bin"
@@ -1681,7 +1694,7 @@ if [[ $compiler_flavors == "multi" || $compiler_flavors == "win32" ]]; then
 fi
 
 if [[ $compiler_flavors == "multi" || $compiler_flavors == "win64" ]]; then
-  echo "**************Building 64-bit ffmpeg..." # make it have a bit header to you can see when 32 bit is done more easily
+  echo "**************Starting 64-bit builds..." make it have a bit header to you can see when 32 bit is done more easily
   host_target='x86_64-w64-mingw32'
   mingw_w64_x86_64_prefix="$cur_dir/cross_compilers/mingw-w64-x86_64/$host_target"
   path_addition="$cur_dir/cross_compilers/mingw-w64-x86_64/bin"
