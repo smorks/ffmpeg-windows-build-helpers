@@ -1037,7 +1037,7 @@ build_libnvenc() {
 }
 
 build_intel_quicksync_mfx() { # qsv
-  do_git_checkout https://github.com/mjb2000/mfx_dispatch.git mfx_dispatch_git
+  do_git_checkout https://github.com/lu-zero/mfx_dispatch.git mfx_dispatch_git
   cd mfx_dispatch_git
     if [[ ! -f "configure" ]]; then
       autoreconf -fiv || exit 1
@@ -1591,7 +1591,7 @@ build_mplayer=n
 build_vlc=n
 git_get_latest=y
 prefer_stable=y
-build_intel_qsv=n
+build_intel_qsv=y
 disable_nonfree=n # have no value by default to force user selection
 original_cflags= # no export needed, this is just a local copy
 
