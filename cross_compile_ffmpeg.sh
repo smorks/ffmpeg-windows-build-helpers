@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ffmpeg windows cross compile helper/download script, see github repo README
 # Copyright (C) 2012 Roger Pack, the script is under the GPLv3, but output FFmpeg's executables aren't
-# set -x # uncomment to enable script debug output
+# set -x # uncomment the set -x to enable script debug output ...
 
 github=https://raw.githubusercontent.com/smorks/ffmpeg-windows-build-helpers/master
 
@@ -57,6 +57,7 @@ check_missing_packages () {
     echo "for ubuntu: $ sudo apt-get install subversion curl texinfo g++ bison flex cvs yasm automake libtool autoconf gcc cmake git make pkg-config zlib1g-dev mercurial unzip pax -y" 
     echo "for gentoo (a non ubuntu distro): same as above, but no g++, no gcc, git is dev-vcs/git, zlib1g-dev is zlib, pkg-config is dev-util/pkgconfig, add ed..."
     echo "for OS X (homebrew): brew install wget cvs hg yasm automake autoconf cmake hg libtool xz pkg-config"
+    echo "for debian: same as ubuntu, but add libtool-bin and ed"
     exit 1
   fi
 
@@ -155,9 +156,12 @@ download_gcc_build_script() {
 }
 
 install_cross_compiler() {
-  if [[ -f "cross_compilers/mingw-w64-i686/compiler.done" && -f "cross_compilers/mingw-w64-x86_64/compiler.done" ]]; then
-   echo "MinGW-w64 compilers both already installed, not re-installing, selecting multi build (both win32 and win64)..."
+  local win32_gcc="cross_compilers/mingw-w64-i686/bin/i686-w64-mingw32-gcc"
+  local win64_gcc="cross_compilers/mingw-w64-x86_64/bin/x86_64-w64-mingw32-gcc"
+  if [[ -f $win32_gcc && -f $win64_gcc ]]; then
+   echo "MinGW-w64 compilers both already installed, not re-installing..."
    if [[ -z $compiler_flavors ]]; then
+     echo "selecting multi build (both win32 and win64)..."
      compiler_flavors=multi
    fi
    return # early exit just assume they want both, don't even prompt :)
@@ -179,30 +183,31 @@ install_cross_compiler() {
     local zeranoe_script_name=mingw-w64-build-3.6.7.local
     # add --mingw-w64-ver=git for updated tuner.h [dshow dtv] past 4.0.4 TODO
     local zeranoe_script_options="--clean-build --disable-shared --default-configure  --pthreads-w32-ver=2-9-1 --cpu-count=$gcc_cpu_count --gcc-ver=5.3.0"
-    if [[ ($compiler_flavors == "win32" || $compiler_flavors == "multi") && ! -f "mingw-w64-i686/compiler.done" ]]; then
-      echo "building win32 cross compiler"
+    if [[ ($compiler_flavors == "win32" || $compiler_flavors == "multi") && ! -f ../$win32_gcc ]]; then
+      echo "building win32 cross compiler..."
       download_gcc_build_script $zeranoe_script_name
-      nice ./$zeranoe_script_name $zeranoe_script_options --build-type=win32 || exit 1 
-      touch mingw-w64-i686/compiler.done # assume success
+      nice ./$zeranoe_script_name $zeranoe_script_options --build-type=win32 || exit 1
+      if [[ ! -f ../$win32_gcc ]]; then
+        echo "failure building 32 bit gcc? recommend nuke sandbox (rm -rf sandbox) and start over..."
+        exit 1
+      fi
     fi
-    if [[ ($compiler_flavors == "win64" || $compiler_flavors == "multi") && ! -f "mingw-w64-x86_64/compiler.done" ]]; then
-      echo "building win64 x86_64 cross compiler"
+    if [[ ($compiler_flavors == "win64" || $compiler_flavors == "multi") && ! -f $win64_gcc ]]; then
+      echo "building win64 x86_64 cross compiler..."
       download_gcc_build_script $zeranoe_script_name
       nice ./$zeranoe_script_name $zeranoe_script_options --build-type=win64 || exit 1 
-      touch mingw-w64-x86_64/compiler.done # assume success :)
+      if [[ ! -f ../$win64_gcc ]]; then
+        echo "failure building 64 bit gcc? recommend nuke sandbox (rm -rf sandbox) and start over..."
+        exit 1
+      fi
     fi
 
-    if [[ ! -f mingw-w64-i686/bin/i686-w64-mingw32-gcc && ! -f mingw-w64-x86_64/bin/x86_64-w64-mingw32-gcc ]]; then
-      echo "no gcc cross compiler(s) seem to have been created [?] (build failure [?]) recommend nuke sandbox dir (rm -rf sandbox) and try again!"
-      exit 1
-    fi
 
-    rm -f build.log
+    rm -f build.log # left over stuff...
     export CFLAGS=$original_cflags # reset it back to what it was passed in as, via parameter :)
   cd ..
   echo "Done building (or already built) MinGW-w64 cross-compiler(s) successfully..."
-  echo `date`
-
+  echo `date` # so they can see how long it took :)
 }
 
 # helper methods for downloading and building projects that can take generic input
@@ -322,7 +327,7 @@ do_configure() {
       autoreconf -fiv # a handful of them require this  to create ./configure :|
     fi
     rm -f already_* # reset
-    nice "$configure_name" $configure_options || exit 1
+    "$configure_name" $configure_options || exit 1 # not nice, so that if some other script is running as nice, this one will get priority :)
     touch -- "$touch_name"
     make clean # just in case, but sometimes useful when files change, etc.
   else
@@ -371,7 +376,7 @@ do_make_install() {
   fi
 }
 
-do_cmake_and_install() {
+do_cmake() {
   extra_args="$1" 
   local touch_name=$(get_small_touchfile_name already_ran_cmake "$extra_args")
 
@@ -383,6 +388,10 @@ do_cmake_and_install() {
     cmake –G”Unix Makefiles” . -DENABLE_STATIC_RUNTIME=1 -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_RANLIB=${cross_prefix}ranlib -DCMAKE_C_COMPILER=${cross_prefix}gcc -DCMAKE_CXX_COMPILER=${cross_prefix}g++ -DCMAKE_RC_COMPILER=${cross_prefix}windres -DCMAKE_INSTALL_PREFIX=$mingw_w64_x86_64_prefix $extra_args || exit 1
     touch $touch_name || exit 1
   fi
+}
+
+do_cmake_and_install() {
+  do_cmake "$1"
   do_make_and_make_install
 }
 
@@ -461,11 +470,16 @@ generic_configure_make_install() {
 }
 
 build_libx265() {
-  # the only one that uses mercurial, so there's some extra initial junk here...
+  # the only one that uses mercurial, so there's some extra initial junk in this method... XXX needs some cleanup :|
+  local checkout_dir=x265
+  if [[ $high_bitdepth == "y" ]]; then
+    checkout_dir=x265_high_bitdepth_10
+  fi
+
   if [[ $prefer_stable = "n" ]]; then
     local old_hg_version
-    if [[ -d x265 ]]; then
-      cd x265
+    if [[ -d $checkout_dir ]]; then
+      cd $checkout_dir
       if [[ $git_get_latest = "y" ]]; then
         echo "doing hg pull -u x265"
         old_hg_version=`hg --debug id -i`
@@ -477,13 +491,13 @@ build_libx265() {
       fi
     else
       echo "doing hg clone x265"
-      hg clone https://bitbucket.org/multicoreware/x265 || exit 1
-      cd x265
+      hg clone https://bitbucket.org/multicoreware/x265 $checkout_dir || exit 1
+      cd $checkout_dir
       old_hg_version=none-yet
     fi
     cd source
 
-    # hg checkout 9b0c9b # no longer needed, but once was...
+    # hg checkout 9b0c9b # no longer needed, but once was...left here so I know how :)
 
     local new_hg_version=`hg --debug id -i`  
     if [[ "$old_hg_version" != "$new_hg_version" ]]; then
@@ -494,8 +508,8 @@ build_libx265() {
     fi
   else
     local old_hg_version
-    if [[ -d x265 ]]; then
-      cd x265
+    if [[ -d $checkout_dir ]]; then
+      cd $checkout_dir
       if [[ $git_get_latest = "y" ]]; then
         echo "doing hg pull -u x265"
         old_hg_version=`hg --debug id -i`
@@ -506,8 +520,8 @@ build_libx265() {
         old_hg_version=`hg --debug id -i`
       fi
     else
-      hg clone https://bitbucket.org/multicoreware/x265 -r stable || exit 1
-      cd x265
+      hg clone https://bitbucket.org/multicoreware/x265 -r stable $checkout_dir || exit 1
+      cd $checkout_dir
       old_hg_version=none-yet
     fi
     cd source
@@ -552,19 +566,35 @@ build_libopenh264() {
   cd ..
 }
 
-
 build_libx264() {
+  local checkout_dir="x264"
+  if [[ $build_x264_with_libav == y ]]; then
+    build_ffmpeg static --disable-libx264 ffmpeg_git_pre_x264 # installs libav locally so we can use it within x264.exe FWIW...
+    checkout_dir="${checkout_dir}_with_libav"
+    # they don't know how to use a normal pkg-config when cross compiling, so specify some manually: (see their mailing list for a request...)
+    export LAVF_LIBS="$LAVF_LIBS $(pkg-config --libs libavformat libavcodec libavutil libswscale)"
+    export LAVF_CFLAGS="$LAVF_CFLAGS $(pkg-config --cflags libavformat libavcodec libavutil libswscale)"
+    export SWSCALE_LIBS="$SWSCALE_LIBS $(pkg-config --libs libswscale)"
+  fi
+
   local x264_profile_guided=n # or y -- haven't gotten this proven yet...TODO
   if [[ $high_bitdepth == "y" ]]; then
-    local checkout_dir="x264_high_bitdepth"
+    checkout_dir="${checkout_dir}_high_bitdepth_10"
   else
-    local checkout_dir="x264"
+    checkout_dir="${checkout_dir}_normal_bitdepth"
   fi
   
   do_git_checkout "http://repo.or.cz/r/x264.git" $checkout_dir "origin/stable"
   cd $checkout_dir
 
-  local configure_flags="--host=$host_target --enable-static --cross-prefix=$cross_prefix --prefix=$mingw_w64_x86_64_prefix --enable-strip --disable-lavf" # --enable-win32thread --enable-debug is another useful option here.
+  local configure_flags="--host=$host_target --enable-static --cross-prefix=$cross_prefix --prefix=$mingw_w64_x86_64_prefix --enable-strip" # --enable-win32thread --enable-debug is another useful option here?
+
+  if [[ $build_x264_with_libav == y ]]; then
+    configure_flags="$configure_flags" # lavf stands for libavformat, there is no --enable-lavf option, either auto or disable...
+  else
+    configure_flags="$configure_flags --disable-lavf"
+  fi
+
   if [[ $high_bitdepth == "y" ]]; then
     configure_flags="$configure_flags --bit-depth=10" # Enable 10 bits (main10) per pixels profile. possibly affects other profiles as well (?)
   fi
@@ -584,6 +614,10 @@ build_libx264() {
     do_configure "$configure_flags"
     do_make_and_make_install
   fi
+
+  unset LAVF_LIBS
+  unset LAVF_CFLAGS
+  unset SWSCALE_LIBS 
   cd ..
 }
 
@@ -635,8 +669,8 @@ build_qt() {
 }
 
 build_libsoxr() {
-  download_and_unpack_file http://sourceforge.net/projects/soxr/files/soxr-0.1.0-Source.tar.xz 
-  cd soxr-0.1.0-Source
+  download_and_unpack_file http://sourceforge.net/projects/soxr/files/soxr-0.1.2-Source.tar.xz 
+  cd soxr-0.1.2-Source
     do_cmake_and_install "-DHAVE_WORDS_BIGENDIAN_EXITCODE=0  -DBUILD_SHARED_LIBS:bool=off -DBUILD_TESTS:BOOL=OFF"
   cd ..
 }
@@ -672,13 +706,6 @@ build_libgme_game_music_emu() {
 
 build_wavpack() {
   generic_download_and_install http://wavpack.com/wavpack-4.70.0.tar.bz2
-}
-
-build_libdcadec() {
-  do_git_checkout https://github.com/foo86/dcadec.git dcadec_git
-  cd dcadec_git
-    do_make_and_make_install "$make_prefix_options"
-  cd ..
 }
 
 build_libwebp() {
@@ -924,15 +951,15 @@ build_libschroedinger() {
 }
 
 build_gnutls() {
-  download_and_unpack_file ftp://ftp.gnutls.org/gcrypt/gnutls/v3.4/gnutls-3.4.8.tar.xz
-  cd gnutls-3.4.8
+  download_and_unpack_file ftp://ftp.gnutls.org/gcrypt/gnutls/v3.4/gnutls-3.4.10.tar.xz
+  cd gnutls-3.4.10
     sed -i.bak 's/mkstemp(tmpfile)/ -1 /g' src/danetool.c # fix x86_64 absent? but danetool is just an exe AFAICT so this hack should be ok...
-    generic_configure "--disable-cxx --disable-doc --enable-local-libopts --disable-guile -with-included-libtasn1 --without-p11-kit" 
     # --disable-cxx don't need the c++ version, in an effort to cut down on size... XXXX test size difference... 
     # --enable-local-libopts to allow building with local autogen installed, 
     # --disable-guile is so that if it finds guile installed (cygwin did/does) it won't try and link/build to it and fail...
     # libtasn1 is some dependency, appears provided is an option [see also build_libnettle]
     # pks #11 hopefully we don't need kit
+    generic_configure "--disable-cxx --disable-doc --enable-local-libopts --disable-guile -with-included-libtasn1 --without-p11-kit" 
     do_make_and_make_install
   cd ..
   sed -i.bak 's/-lgnutls *$/-lgnutls -lnettle -lhogweed -lgmp -lcrypt32 -lws2_32 -liconv/' "$PKG_CONFIG_PATH/gnutls.pc"
@@ -1037,9 +1064,9 @@ build_libnvenc() {
   fi
 }
 
-build_intel_quicksync_mfx() { # qsv
-  do_git_checkout https://github.com/lu-zero/mfx_dispatch.git mfx_dispatch_git
-  cd mfx_dispatch_git
+build_intel_quicksync_mfx() { # i.e. qsv
+  do_git_checkout https://github.com/lu-zero/mfx_dispatch.git mfx_dispatch_git_lu_zero
+  cd mfx_dispatch_git_lu_zero
     if [[ ! -f "configure" ]]; then
       autoreconf -fiv || exit 1
     fi
@@ -1072,8 +1099,8 @@ build_iconv() {
 }
 
 build_freetype() {
-  download_and_unpack_file http://download.savannah.gnu.org/releases/freetype/freetype-2.5.5.tar.gz
-  cd freetype-2.5.5
+  download_and_unpack_file https://download.videolan.org/contrib/freetype-2.6.2.tar.gz
+  cd freetype-2.6.2
     if [[ `uname -s` == CYGWIN* ]]; then
       generic_configure "--build=i686-pc-cygwin --with-png=no"  # hard to believe but needed...
     else
@@ -1187,9 +1214,10 @@ build_twolame() {
 }
 
 build_frei0r() {
-  # theoretically we could get by with just copying a .h file in, but why not build them here anyway, just for fun? :)
+  # theoretically we could get by with just copying a .h file in, but why not build the .dll's here anyway, for fun, and in case useful? :)
   download_and_unpack_file https://files.dyne.org/frei0r/releases/frei0r-plugins-1.4.tar.gz
   cd frei0r-plugins-1.4
+    sed -i.bak "s/find_package (Cairo)//g" CMakeLists.txt
     do_cmake_and_install
   cd ..
 }
@@ -1238,16 +1266,17 @@ build_vlc() {
   # call out dependencies here since it's a lot, plus hierarchical FTW!
   # should be ffmpeg 1.1.1 or some odd?
 
-  echo "not doing vlc build, currently broken until enough interest to fix it"
-  return
-
-  #if [ ! -f $mingw_w64_x86_64_prefix/lib/libavutil.a ]; then # it takes awhile without this 
-    build_ffmpeg ffmpeg 
-  #fi
+  # vlc dependencies:
+  # if [ ! -f $mingw_w64_x86_64_prefix/lib/libavutil.a ]; then # it takes awhile without this 
+    build_ffmpeg
+  # fi
   build_libdvdread
   build_libdvdnav
   build_libx265
   build_qt
+
+  # currently broken :|
+  return
 
   do_git_checkout https://github.com/videolan/vlc.git vlc_git
   cd vlc_git
@@ -1274,7 +1303,7 @@ build_vlc() {
   echo "
 
 
-     created a file like ${PWD}/vlc-2.2.0-git/vlc.exe
+     vlc success, created a file like ${PWD}/vlc-xxx-git/vlc.exe
 
 
 
@@ -1339,7 +1368,7 @@ build_libMXF() {
   apply_patch $github/patches/libMXF.diff
   do_make "MINGW_CC_PREFIX=$cross_prefix"
   #
-  # Manual equivalent of make install.  Enable it if desired.  We shouldn't need it in theory since we never use libMXF.a file and can just hand pluck out the *.exe files...
+  # Manual equivalent of make install.  Enable it if desired.  We shouldn't need it in theory since we never use libMXF.a file and can just hand pluck out the *.exe files already...
   #
   # cp libMXF/lib/libMXF.a $mingw_w64_x86_64_prefix/lib/libMXF.a
   # cp libMXF++/libMXF++/libMXF++.a $mingw_w64_x86_64_prefix/lib/libMXF++.a
@@ -1361,12 +1390,16 @@ build_libdecklink() {
 }
 
 build_ffmpeg() {
-  local type=$1
-  local shared=$2
+  local shared_or_static=$1
+  local extra_postpend_configure_options=$2
   #local git_url="https://github.com/FFmpeg/FFmpeg.git"
-  local ffver="3.0.1"
+  local ffver="3.0.2"
   local output_dir="ffmpeg-$ffver"
   local ffurl="http://ffmpeg.org/releases/ffmpeg-${ffver}.tar.bz2"
+  #local output_dir=$3
+  if [[ -z $output_dir ]]; then
+    output_dir="ffmpeg_git"
+  fi
 
   #if [[ "$non_free" = "y" ]]; then
   #  output_dir="${output_dir}_with_fdk_aac"
@@ -1375,7 +1408,7 @@ build_ffmpeg() {
   local postpend_configure_opts=""
 
   # can't mix and match --enable-static --enable-shared unfortunately, or the final executable seems to just use shared if the're both present
-  if [[ $shared == "shared" ]]; then
+  if [[ $shared_or_static == "shared" ]]; then
     #output_dir=${output_dir}_shared
     final_install_dir=`pwd`/${output_dir}.installed
     postpend_configure_opts="--enable-shared --disable-static $postpend_configure_opts"
@@ -1423,13 +1456,14 @@ build_ffmpeg() {
     config_options="$config_options --enable-runtime-cpudetect"
   fi
 
-  do_debug_build=n # if you need one for backtraces/examining segfaults using gdb.exe ... change this to a y :)
+  do_debug_build=n # if you need one for backtraces/examining segfaults using gdb.exe ... change this to y :)
   if [[ "$do_debug_build" = "y" ]]; then
     # not sure how many of these are actually needed/useful...possibly none LOL
     config_options="$config_options --disable-optimizations --extra-cflags=-Og --extra-cflags=-fno-omit-frame-pointer --enable-debug=3 --extra-cflags=-fno-inline $postpend_configure_opts"
     # this one kills gdb workability for static build? ai ai [?] XXXX
     config_options="$config_options --disable-libgme"
   fi
+  config_options="$config_options $extra_postpend_configure_options"
   
   do_configure "$config_options"
   rm -f */*.a */*.dll *.exe # just in case some dependency library has changed, force it to re-link even if the ffmpeg source hasn't changed...
@@ -1442,7 +1476,7 @@ build_ffmpeg() {
 
   sed -i.bak 's/-lavutil -lm.*/-lavutil -lm -lpthread/' "$PKG_CONFIG_PATH/libavutil.pc" # XXX patch ffmpeg itself...
   sed -i.bak 's/-lswresample -lm.*/-lswresample -lm -lsoxr/' "$PKG_CONFIG_PATH/libswresample.pc" # XXX patch ffmpeg
-  echo "Done! You will find $bits_target bit $shared non_free=$non_free binaries in $(pwd)/*.exe"
+  echo "Done! You will find $bits_target bit $shared_or_static non_free=$non_free binaries in $(pwd)/*.exe"
   echo `date`
   cd ..
 }
@@ -1475,7 +1509,6 @@ build_dependencies() {
   build_libsndfile
   build_libbs2b # needs libsndfile
   build_wavpack
-  build_libdcadec
   build_libgme_game_music_emu
   build_libwebp
   build_libutvideo
@@ -1499,7 +1532,6 @@ build_dependencies() {
   build_libxvid
   build_libxavs
   build_libsoxr
-  build_libx264
   build_libx265
   build_libopenh264
   build_lame
@@ -1530,6 +1562,7 @@ build_dependencies() {
   fi
   # build_openssl # hopefully do not need it anymore, since we use gnutls everywhere, so just don't even build it anymore...
   build_librtmp # needs gnutls [or openssl...]
+  build_libx264 # at bottom as it might build an ffmpeg which needs all the above deps...
 }
 
 build_apps() {
@@ -1547,10 +1580,10 @@ build_apps() {
     build_mplayer
   fi
   if [[ $build_ffmpeg_static = "y" ]]; then
-    build_ffmpeg ffmpeg
+    build_ffmpeg 
   fi
   if [[ $build_ffmpeg_shared = "y" ]]; then
-    build_ffmpeg ffmpeg shared
+    build_ffmpeg shared
   fi
   if [[ $build_vlc = "y" ]]; then
     build_vlc
@@ -1595,16 +1628,17 @@ prefer_stable=y
 build_intel_qsv=y
 disable_nonfree=n # have no value by default to force user selection
 original_cflags= # no export needed, this is just a local copy
+build_x264_with_libav=n
 
 # parse command line parameters, if any
 while true; do
   case $1 in
-    -h | --help ) echo "available options [with defaults]: 
-      --build-ffmpeg-shared=n 
-      --build-ffmpeg-static=y 
+    -h | --help ) echo "available options [with default value]: 
+      --build-ffmpeg-static=y  (the "normal" ffmpeg.exe build, on by default)
+      --build-ffmpeg-shared=n  (ffmpeg with .dll files as well as .exe files)
       --gcc-cpu-count=1x [number of cpu cores set it higher than 1 if you have multiple cores and > 1GB RAM, this speeds up initial cross compiler build. FFmpeg build uses number of cores no matter what] 
       --disable-nonfree=y (set to n to include nonfree like libfdk-aac) 
-      --build-intel-qsv=n (set to y to include the [non windows xp compat.] qsv library and ffmpeg module
+      --build-intel-qsv=y (set to y to include the [non windows xp compat.] qsv library and ffmpeg module. NB this not not hevc_qsv...
       --sandbox-ok=n [skip sandbox prompt if y] 
       -d [meaning \"defaults\" skip all prompts, just build ffmpeg static with some reasonable defaults like no git updates] 
       --build-libmxf=n [builds libMXF, libMXF++, writeavidmxfi.exe and writeaviddv50.exe from the BBC-Ingex project] 
@@ -1616,6 +1650,7 @@ while true; do
       --compiler-flavors=[multi,win32,win64] [default prompt, or skip if you already have one built, multi is both win32 and win64]
       --cflags= [default is empty, compiles for generic cpu, see README]
       --git-get-latest=y [do a git pull for latest code from repositories like FFmpeg--can force a rebuild if changes are detected]
+      --build-x264-with-libav=n build x264.exe with bundled/included "libav" ffmpeg libraries within it
       --prefer-stable=y build a few libraries from releases instead of git master
       --high-bitdepth=y Enable high bit depth for x264 (10 bits) and x265 (10 and 12 bits, x64 build. Not officially supported on x86 (win32), but enabled by disabling its assembly).
        "; exit 0 ;;
@@ -1625,6 +1660,7 @@ while true; do
     --build-mp4box=* ) build_mp4box="${1#*=}"; shift ;;
     --git-get-latest=* ) git_get_latest="${1#*=}"; shift ;;
     --build-intel-qsv=* ) build_intel_qsv="${1#*=}"; shift ;;
+    --build-x264-with-libav=* ) build_x264_with_libav="${1#*=}"; shift ;;
     --build-mplayer=* ) build_mplayer="${1#*=}"; shift ;;
     --cflags=* ) 
        echo "removing old .exe's, in case cflags has changed"
@@ -1640,7 +1676,7 @@ while true; do
     --build-dvbtee=* ) should_build_libdvbtee="${1#*=}"; shift ;;
     --disable-nonfree=* ) disable_nonfree="${1#*=}"; shift ;;
     -a         ) compiler_flavors="multi"; build_mplayer=y; build_libmxf=y; build_mp4box=y; build_vlc=y; build_ffmpeg_shared=y; high_bitdepth=y; build_ffmpeg_static=y; 
-                 disable_nonfree=n; git_get_latest=y; sandbox_ok="y"; build_intel_qsv="y"; should_build_libdvbtee="y"; shift ;;
+                 disable_nonfree=n; git_get_latest=y; sandbox_ok="y"; build_intel_qsv="y"; should_build_libdvbtee="y"; build_x264_with_libav="y"; shift ;;
     -d         ) gcc_cpu_count=$cpu_count; disable_nonfree="y"; sandbox_ok="y"; compiler_flavors="win32"; git_get_latest="n"; shift ;;
     --compiler-flavors=* ) compiler_flavors="${1#*=}"; shift ;;
     --build-ffmpeg-static=* ) build_ffmpeg_static="${1#*=}"; shift ;;
