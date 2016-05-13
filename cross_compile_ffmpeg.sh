@@ -691,8 +691,8 @@ build_libsndfile() {
 }
 
 build_libbs2b() {
-  export ac_cv_func_malloc_0_nonnull=yes # rp_alloc failure yikes
-  generic_download_and_install http://downloads.sourceforge.net/project/bs2b/libbs2b/3.1.0/libbs2b-3.1.0.tar.lzma
+  export ac_cv_func_malloc_0_nonnull=yes # rp_alloc compile failure yikes
+  generic_download_and_install http://downloads.sourceforge.net/project/bs2b/libbs2b/3.1.0/libbs2b-3.1.0.tar.gz
   unset ac_cv_func_malloc_0_nonnull
 }
 
@@ -751,12 +751,17 @@ build_libvpx() {
 
 build_libutvideo() {
   # if ending in .zip from sourceforge needs to not have /download on it? huh wuh?
-  download_and_unpack_file http://sourceforge.net/projects/ffmpegwindowsbi/files/utvideo-12.2.1-src.zip utvideo-12.2.1 # local copy since the originating site http://umezawa.dyndns.info/archive/utvideo is sometimes inaccessible from draconian proxies
-  #do_git_checkout https://github.com/qyot27/libutvideo.git libutvideo_git_qyot27 # todo this would be even newer version than 12.2.1?
-  cd utvideo-12.2.1
-    apply_patch $github/patches/utv.diff
-    sed -i.bak "s|Format.o|DummyCodec.o|" GNUmakefile
-    do_make_and_make_install "CROSS_PREFIX=$cross_prefix DESTDIR=$mingw_w64_x86_64_prefix prefix=" # prefix= to avoid it adding an extra /usr/local to it yikes
+  download_and_unpack_file http://sourceforge.net/projects/ffmpegwindowsbi/files/utvideo-15.3.0-src.zip utvideo-15.3.0 # local copy since the originating site http://umezawa.dyndns.info/archive/utvideo is sometimes inaccessible behind draconian proxies
+  cd utvideo-15.3.0
+    apply_patch https://raw.githubusercontent.com/rdp/ffmpeg-windows-build-helpers/master/patches/utv.diff
+    if [[ ! -f GNUmakefile ]]; then
+      curl -4 https://raw.githubusercontent.com/rdp/utvideo/master/utvideo-makefile -o GNUmakefile -L || exit 1
+
+    fi
+    #sed -i.bak "s|Format.o|DummyCodec.o|" GNUmakefile
+    export CXXFLAGS='-g -O2 -Wall -Wextra -Wno-multichar -Wno-unused-parameter -Wno-sign-compare -Iinclude -Iutv_logl' # not sure why I needed those extra includes...
+    do_make_and_make_install "CROSS_PREFIX=$cross_prefix DESTDIR=$mingw_w64_x86_64_prefix"
+    unset CXXFLAGS
   cd ..
 }
 
@@ -1318,7 +1323,7 @@ build_mplayer() {
   build_libdvdnav
   download_and_unpack_file http://sourceforge.net/projects/mplayer-edl/files/mplayer-export-snapshot.2014-05-19.tar.bz2 mplayer-export-2014-05-19
   cd mplayer-export-2014-05-19
-  do_git_checkout https://github.com/FFmpeg/FFmpeg ffmpeg d43c303038e9bd
+  do_git_checkout https://github.com/FFmpeg/FFmpeg ffmpeg d43c303038e9bd # known to work
   export LDFLAGS='-lpthread -ldvdnav -ldvdread -ldvdcss' # not compat with newer dvdread possibly? huh wuh?
   export CFLAGS=-DHAVE_DVDCSS_DVDCSS_H
   do_configure "--enable-cross-compile --host-cc=cc --cc=${cross_prefix}gcc --windres=${cross_prefix}windres --ranlib=${cross_prefix}ranlib --ar=${cross_prefix}ar --as=${cross_prefix}as --nm=${cross_prefix}nm --enable-runtime-cpudetection --extra-cflags=$CFLAGS --with-dvdnav-config=$mingw_w64_x86_64_prefix/bin/dvdnav-config --disable-dvdread-internal --disable-libdvdcss-internal --disable-w32threads --enable-pthreads --extra-libs=-lpthread --enable-debug --enable-ass-internal --enable-dvdread --enable-dvdnav" # haven't reported the ldvdcss thing, think it's to do with possibly it not using dvdread.pc [?] XXX check with trunk
@@ -1418,7 +1423,7 @@ build_ffmpeg() {
     postpend_configure_opts="--enable-static --disable-shared $postpend_configure_opts --prefix=$mingw_w64_x86_64_prefix"
   fi
 
-  #do_git_checkout $git_url ${output_dir}
+  #do_git_checkout $git_url $output_dir $ffmpeg_git_checkout_version 
   download_and_unpack_file $ffurl ${output_dir}
   cd $output_dir
   
@@ -1629,6 +1634,7 @@ build_intel_qsv=y
 disable_nonfree=n # have no value by default to force user selection
 original_cflags= # no export needed, this is just a local copy
 build_x264_with_libav=n
+ffmpeg_git_checkout_version=
 
 # parse command line parameters, if any
 while true; do
@@ -1636,6 +1642,7 @@ while true; do
     -h | --help ) echo "available options [with default value]: 
       --build-ffmpeg-static=y  (the "normal" ffmpeg.exe build, on by default)
       --build-ffmpeg-shared=n  (ffmpeg with .dll files as well as .exe files)
+      --ffmpeg-git-checkout-version=[master] if you want to build a particular version of FFmpeg, ex: release/2.8 or a git hash
       --gcc-cpu-count=1x [number of cpu cores set it higher than 1 if you have multiple cores and > 1GB RAM, this speeds up initial cross compiler build. FFmpeg build uses number of cores no matter what] 
       --disable-nonfree=y (set to n to include nonfree like libfdk-aac) 
       --build-intel-qsv=y (set to y to include the [non windows xp compat.] qsv library and ffmpeg module. NB this not not hevc_qsv...
@@ -1656,6 +1663,7 @@ while true; do
        "; exit 0 ;;
     --sandbox-ok=* ) sandbox_ok="${1#*=}"; shift ;;
     --gcc-cpu-count=* ) gcc_cpu_count="${1#*=}"; shift ;;
+    --ffmpeg-git-checkout-version=* ) ffmpeg_git_checkout_version="${1#*=}"; shift ;;
     --build-libmxf=* ) build_libmxf="${1#*=}"; shift ;;
     --build-mp4box=* ) build_mp4box="${1#*=}"; shift ;;
     --git-get-latest=* ) git_get_latest="${1#*=}"; shift ;;
