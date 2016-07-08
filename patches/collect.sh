@@ -1,57 +1,59 @@
-#This basically packages up all your FFmpeg static/shared builds into .7z files
+#This basically packages up all your FFmpeg static/shared builds into zipped files
+# set -x
 
 cd sandbox/win32/ffmpeg_git
-git_version=`git rev-parse HEAD`
+  git_version=`git rev-parse --short HEAD`
 cd ../../..
-mkdir -p distros # -p so it doesn't warn
-date=`date +%Y-%m-%d-%Hh%Mm`
-echo "creating distro for $date ffmpeg $git_version"
+mkdir -p sandbox/distros # -p so it doesn't warn
+date=`date +%Y-%m-%d`
+date="$date-g$git_version"
 
-file="distro-$date"
-root="distros/$file"
+file="$date"
+root="sandbox/distros/$file"
+echo "creating $root for $date"
 rm -rf $root
 mkdir -p "$root/32-bit"
 mkdir -p "$root/64-bit"
 
-dir="$root/32-bit/ffmpeg-static"
-if [ -f ./sandbox/win32/ffmpeg_git/ffmpeg.exe ]; then
-  mkdir $dir
-fi
+# special static install files XXXX use make install here [?]
 
-cp ./sandbox/win32/ffmpeg_git/ffmpeg.exe "$dir"
-cp ./sandbox/win32/ffmpeg_git/ffplay.exe "$dir"
-cp ./sandbox/win32/ffmpeg_git/ffmpeg_g.exe "$dir"
+copy_ffmpeg_binaries() {
+  local from_dir=$1
+  local to_dir=$2
+  local strip=$3
 
-dir="$root/64-bit/ffmpeg-static"
-if [ -f ./sandbox/x86_64/ffmpeg_git/ffmpeg.exe ]; then
-  mkdir $dir
-  cp ./sandbox/x86_64/ffmpeg_git/ffmpeg.exe "$dir"
-  cp ./sandbox/x86_64/ffmpeg_git/ffplay.exe "$dir"
-  cp ./sandbox/x86_64/ffmpeg_git/ffmpeg_g.exe "$dir"
-fi
+  # make sure git matches everywhere, otherwise zip names off :|
+  cd $from_dir
+    local_git_version=`git rev-parse --short HEAD`
+    if [[ $git_version != $local_git_version ]]; then
+      echo "git versions don't match $from_dir, hesitating to continue..."
+      exit -1
+    fi
+  cd ../../..
+  mkdir $to_dir
+  cp $from_dir/ffmpeg.exe "$to_dir"
+  cp $from_dir/ffplay.exe "$to_dir"
+  cp $from_dir/ffprobe.exe "$to_dir"
 
-dir="$root/32-bit/ffmpeg-shared"
-mkdir $dir
+  # in case shared: TODO
+  # cp $from_dir/*/*-*.dll "$to_dir"  # flatten it, since we're not using make install :|
+  # $strip $to_dir/*.dll # XXX why?
 
-cp ./sandbox/win32/ffmpeg_git_shared/ffmpeg.exe "$dir"
-cp ./sandbox/win32/ffmpeg_git_shared/ffplay.exe "$dir"
-cp ./sandbox/win32/ffmpeg_git_shared/ffmpeg_g.exe "$dir"
+  # XXXX copy in frei0r filters :) meh sopmeday
+}
 
-cp ./sandbox/win32/ffmpeg_git_shared/*/*-*.dll     "$dir"  # have to flatten it
-./sandbox/mingw-w64-i686/bin/i686-w64-mingw32-strip $dir/*.dll # XXX debug dll's?
+copy_ffmpeg_binaries ./sandbox/win32/ffmpeg_git "$root/32-bit/ffmpeg-static"  
+copy_ffmpeg_binaries ./sandbox/x86_64/ffmpeg_git "$root/64-bit/ffmpeg-static" 
 
-dir="$root/64-bit/ffmpeg-shared"
-mkdir $dir
+do_shareds() {
+  copy_ffmpeg_binaries ./sandbox/win32/ffmpeg_git_shared $root/32-bit/ffmpeg-shared ./sandbox/mingw-w64-i686/bin/i686-w64-mingw32-strip
+  copy_ffmpeg_binaries ./sandbox/x86_64/ffmpeg_git_shared $root/64-bit/ffmpeg-shared ./sandbox/mingw-w64-x86_64/bin/x86_64-w64-mingw32-strip
+}
 
-cp ./sandbox/x86_64/ffmpeg_git_shared/ffmpeg.exe "$dir"
-cp ./sandbox/x86_64/ffmpeg_git_shared/ffplay.exe "$dir"
-cp ./sandbox/x86_64/ffmpeg_git_shared/ffmpeg_g.exe "$dir"
-
-cp ./sandbox/x86_64/ffmpeg_git_shared/*/*-*.dll "$dir"
-./sandbox/mingw-w64-x86_64/bin/x86_64-w64-mingw32-strip $dir/*.dll
-
+#do_shareds # if I ever care
 
 copy_from() {
+ # if you want other exe's like x264.exe ...
  from_dir=$1 # like win32
  to_dir=$2 # like 32-bit
 
@@ -65,12 +67,31 @@ copy_from() {
   fi
 }
 
-copy_from win32 32-bit
-copy_from x86_64 64-bit
+# copy_from win32 32-bit
+# copy_from x86_64 64-bit
 
-cd distros
-# -mx=1 for fastest compression speed [but biggest file ...]
-7zr -mx=1 a "$file.7z" "$file/*" || 7za a "$file.7z" "$file/*"  # some have a package with only 7za, see https://github.com/rdp/ffmpeg-windows-build-helpers/issues/16
-cd ..
+create_zip() {
+  echo "zipping $1"
+  zip -r $1 $2
+}
 
-echo "created distros/$file.7z"
+create_zips() {
+  cd sandbox/distros
+    create_zip ffmpeg.static.$date.32-bit.zip "$file/32-bit/ffmpeg-static/*"
+    create_zip ffmpeg.static.$date.64-bit.zip "$file/64-bit/ffmpeg-static/*"
+  cd ..
+}
+
+create_zips
+
+do_high_bitdepth() {
+  copy_ffmpeg_binaries ./sandbox/win32/ffmpeg_git_x26x_high_bitdepth "$root/32-bit/ffmpeg-static-x26x-high-bitdepth"  
+  copy_ffmpeg_binaries ./sandbox/x86_64/ffmpeg_git_x26x_high_bitdepth "$root/64-bit/ffmpeg-static-x26x-high-bitdepth" 
+  cd sandbox/distros
+    create_zip ffmpeg.static.$date.32-bit.x26x-high-bitdepth.zip "$file/32-bit/ffmpeg-static-x26x-high-bitdepth/*"
+    create_zip ffmpeg.static.$date.64-bit.x26x-high-bitdepth.zip "$file/64-bit/ffmpeg-static-x26x-high-bitdepth/*"
+  cd ..
+}
+
+#do_high_bitdepth
+
