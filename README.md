@@ -7,6 +7,7 @@ including many dependency libraries they use.
 To run the script, either build in windows, or build in linux (cross compiles to build windows executables).
 Building in linux takes less time overall, but requires a linux box or VM.
 Building in windows takes "quite awhile" but avoids the need of needing linux installed somewhere.
+I do have some "distro release builds" of running the script here: https://sourceforge.net/projects/ffmpegwindowsbi/files
 
 To build in windows (uses the native'ish cygwin):
 
@@ -85,9 +86,10 @@ Unfortunately, after doing some benchmarking, it seems that modifying the CFLAGS
 
 NB that this may contain slightly older/out of date dependency versions, so there may be a chance of security risk, though FFmpeg itself will be built from git master by default, with all the latest and greatest.
 
-NB that if you have wine installed (in linux) you may need to run this command first to disable it (if you are building for a different architecture than the building machine, especially), so that it doesn't auto run files like conftest.exe, etc. during the build (they may crash with an annoying popup prompt otherwise)
+NB that if you have wine installed (in linux) you may need to run this command first to disable it (if you are building for a different -march=XX than the building machine, especially), so that it doesn't auto run files like conftest.exe, etc. during the build (they may crash with an annoying popup prompt otherwise)
 $ sudo update-binfmts --disable wine
 ref: http://askubuntu.com/questions/344088/how-to-ensure-wine-does-not-auto-run-exe-files
+or if you get hangs (esp. during configure) see above ref
 
 Feedback welcome roger-projects@googlegroups.com
 
