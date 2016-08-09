@@ -97,8 +97,9 @@ intro() {
   You can, of course, rebuild ffmpeg from within it, etc.
 EOL
   if [[ $sandbox_ok != 'y' && ! -d sandbox ]]; then
-    echo "Building in $PWD/sandbox, will use ~ 5GB space!"
-    sleep 0.3 # :)
+    echo
+    echo "Building in $PWD/sandbox, will use ~ 10GB space!"
+    echo
   fi
   mkdir -p "$cur_dir"
   cd "$cur_dir"
@@ -179,7 +180,7 @@ install_cross_compiler() {
     local zeranoe_script_name=mingw-w64-build-3.6.7.local
     # add --mingw-w64-ver=git for updated tuner.h [dshow dtv] at least not present in 4.0.6 TODO bump to v 5 when released, if released
     # actually git make "faster" builds for some reason, so leave for now, known working commit: d9ce1abe40efb835609e646b1533acab4a404d03
-    local zeranoe_script_options="--clean-build --disable-shared --default-configure  --pthreads-w32-ver=2-9-1 --cpu-count=$gcc_cpu_count --gcc-ver=5.3.0 --mingw-w64-ver=git"
+    local zeranoe_script_options="--clean-build --disable-shared --default-configure  --pthreads-w32-ver=2-9-1 --cpu-count=$gcc_cpu_count --mingw-w64-ver=git --gcc-ver=4.9.3"
     if [[ ($compiler_flavors == "win32" || $compiler_flavors == "multi") && ! -f ../$win32_gcc ]]; then
       echo "building win32 cross compiler..."
       download_gcc_build_script $zeranoe_script_name
@@ -327,8 +328,8 @@ do_configure() {
     touch -- "$touch_name"
     echo "doing preventative make clean"
     nice make clean -j $cpu_count # sometimes useful when files change, etc.
-  else
-    echo "already configured $(basename $cur_dir2)" 
+  #else
+  #  echo "already configured $(basename $cur_dir2)" 
   fi
 }
 
@@ -409,8 +410,8 @@ apply_patch() {
    patch $patch_type < "$patch_name" || exit 1
    touch $patch_done_name || exit 1
    rm -f already_ran* # if it's a new patch, reset everything too, in case it's really really really new
- else
-   echo "patch $patch_name already applied"
+ #else
+   #echo "patch $patch_name already applied"
  fi
 }
 
@@ -970,7 +971,7 @@ build_orc() {
 }
 
 build_libxml2() {
-  generic_download_and_make_and_install http://xmlsoft.org/sources/libxml2-2.9.0.tar.gz libxml2-2.9.0 "--without-python"
+  generic_download_and_make_and_install http://xmlsoft.org/sources/libxml2-2.9.4.tar.gz libxml2-2.9.4 "--without-python"
 }
 
 build_libbluray() {
@@ -1057,15 +1058,6 @@ build_fontconfig() {
   sed -i.bak 's/-L${libdir} -lfontconfig[^l]*$/-L${libdir} -lfontconfig -lfreetype -lexpat/' "$PKG_CONFIG_PATH/fontconfig.pc"
 }
 
-build_libaacplus() {
-  download_and_unpack_file http://217.20.164.161/~tipok/aacplus/libaacplus-2.0.2.tar.gz
-  cd libaacplus-2.0.2
-    if [[ ! -f configure ]]; then
-     ./autogen.sh --fail-early
-    fi
-    generic_configure_make_install 
-  cd ..
-}
 
 build_openssl() {
   # warning, this is a very old version of openssl since we don't really use it anymore hasn't been updated in awhile...
@@ -1209,7 +1201,7 @@ build_librubberband() {
     cp -r rubberband $mingw_w64_x86_64_prefix/include
     cp rubberband.pc.in $PKG_CONFIG_PATH/rubberband.pc
     sed -i.bak "s|%PREFIX%|$mingw_w64_x86_64_prefix|" $PKG_CONFIG_PATH/rubberband.pc
-    sed -i.bak 's/-lrubberband *$/-lrubberband -lfftw3 -lsamplerate/' $PKG_CONFIG_PATH/rubberband.pc
+    sed -i.bak 's/-lrubberband *$/-lrubberband -lfftw3 -lsamplerate -lstdc++/' $PKG_CONFIG_PATH/rubberband.pc
   cd ..
 }
 
@@ -1311,15 +1303,14 @@ build_libhdhomerun() {
   cd libhdhomerun
     do_make CROSS_COMPILE=$cross_prefix  OS=Windows_NT
   cd ..
-  exit 1
 }
 
-build_libdvbtee() {
+build_dvbtee_app() {
   build_libcurl # it "can use this" so why not
-#  build_libhdhomerun # broken :|
+#  build_libhdhomerun # broken but dependency apparently :|
   do_git_checkout https://github.com/mkrufky/libdvbtee.git libdvbtee
   cd libdvbtee
-    # checkout its submodule
+    # checkout its submodule, apparently required
     if [ ! -e libdvbpsi/bootstrap ]; then
       rm -rf libdvbpsi # remove placeholder
       do_git_checkout https://github.com/mkrufky/libdvbpsi.git libdvbpsi
@@ -1347,6 +1338,7 @@ build_vlc() {
   build_qt
 
   # currently vlc itself currently broken :|
+  echo "not building vlc, broken dependencies or something weird"
   return
 
   do_git_checkout https://github.com/videolan/vlc.git vlc_git
@@ -1540,7 +1532,7 @@ build_ffmpeg() {
     config_options="$config_options --enable-nonfree --enable-libfdk-aac --disable-libfaac " 
     # libfaac deemed too poor quality and becomes the default if included -- add it in and uncomment the build_faac line to include it, if anybody ever wants it... 
     # To use fdk-aac in VLC, we need to change FFMPEG's default (aac), but I haven't found how to do that... So I disabled it. This could be an new option for the script? (was --disable-decoder=aac )
-    # other possible options: --enable-openssl [unneeded since we use gnutls] --enable-libaacplus [just use fdk-aac only to avoid collision]
+    # other possible options: --enable-openssl [unneeded since we use gnutls] 
     #  apply_patch https://raw.githubusercontent.com/rdp/ffmpeg-windows-build-helpers/master/patches/nvresize2.patch "-p1" # uncomment if you want to test nvresize filter [et al] http://ffmpeg.org/pipermail/ffmpeg-devel/2015-November/182781.html patch worked with 7ab37cae34b3845
   fi
 
@@ -1659,7 +1651,6 @@ build_dependencies() {
   if [[ "$non_free" = "y" ]]; then
     build_fdk_aac
     # build_faac # not included for now, too poor quality output :)
-    # build_libaacplus # if you use it, conflicts with other AAC encoders <sigh>, so disabled :)    
   fi
   # build_openssl # hopefully do not need it anymore, since we use gnutls everywhere, so just don't even build it anymore...
   build_librtmp # needs gnutls [or openssl...]
@@ -1667,8 +1658,8 @@ build_dependencies() {
 }
 
 build_apps() {
-  if [[ $should_build_libdvbtee = "y" ]]; then
-    build_libdvbtee
+  if [[ $build_dvbtee = "y" ]]; then
+    build_dvbtee_app
   fi
   # now the things that use the dependencies...
   if [[ $build_libmxf = "y" ]]; then
@@ -1718,7 +1709,7 @@ fi
 
 build_ffmpeg_static=n
 build_ffmpeg_shared=y
-should_build_libdvbtee=n
+build_dvbtee=n
 build_libmxf=n
 build_mp4box=n
 build_mplayer=n
@@ -1740,7 +1731,7 @@ while true; do
     -h | --help ) echo "available option=default_value: 
       --build-ffmpeg-static=y  (the "normal" ffmpeg.exe build, on by default)
       --build-ffmpeg-shared=n  (ffmpeg with .dll files as well as .exe files)
-      --ffmpeg-git-checkout-version=[master] if you want to build a particular version of FFmpeg, ex: release/2.8 or a git hash
+      --ffmpeg-git-checkout-version=[master] if you want to build a particular version of FFmpeg, ex: n3.1.1 or a specific git hash
       --gcc-cpu-count=[number of cpu cores set it higher than 1 if you have multiple cores and > 1GB RAM, this speeds up initial cross compiler build. FFmpeg build uses number of cores no matter what] 
       --disable-nonfree=y (set to n to include nonfree like libfdk-aac) 
       --build-intel-qsv=y (set to y to include the [non windows xp compat.] qsv library and ffmpeg module. NB this not not hevc_qsv...
@@ -1751,7 +1742,7 @@ while true; do
       --build-mplayer=n [builds mplayer.exe and mencoder.exe] 
       --build-vlc=n [builds a [rather bloated] vlc.exe] 
       --build-ismindex=n [builds ffmpeg utility ismindex.exe]
-      -a 'build all' builds mplayer, vlc, etc.
+      -a 'build all' builds ffmpeg, mplayer, vlc, etc. with all fixings turned on
       --build-dvbtee=n [build dvbtee.exe a DVB profiler]
       --compiler-flavors=[multi,win32,win64] [default prompt, or skip if you already have one built, multi is both win32 and win64]
       --cflags=[default is $original_cflags, which works on any cpu, see README for options]
@@ -1775,10 +1766,10 @@ while true; do
     --cflags=* ) 
        original_cflags="${1#*=}"; echo "setting cflags as $original_cflags"; shift ;;
     --build-vlc=* ) build_vlc="${1#*=}"; shift ;;
-    --build-dvbtee=* ) should_build_libdvbtee="${1#*=}"; shift ;;
+    --build-dvbtee=* ) build_dvbtee="${1#*=}"; shift ;;
     --disable-nonfree=* ) disable_nonfree="${1#*=}"; shift ;;
     -a         ) compiler_flavors="multi"; build_mplayer=y; build_libmxf=y; build_mp4box=y; build_vlc=y; build_ffmpeg_shared=y; high_bitdepth=y; build_ffmpeg_static=y; 
-                 disable_nonfree=n; git_get_latest=y; sandbox_ok="y"; build_intel_qsv="y"; should_build_libdvbtee="y"; build_x264_with_libav="y"; shift ;;
+                 disable_nonfree=n; git_get_latest=y; sandbox_ok="y"; build_intel_qsv="y"; build_dvbtee="y"; build_x264_with_libav="y"; shift ;;
        # this doesn't build everything, like 10 bit free ffmpeg, but it does exercise the "non default" code I suppose...
     -d         ) gcc_cpu_count=$cpu_count; disable_nonfree="y"; sandbox_ok="y"; compiler_flavors="win32"; git_get_latest="n"; shift ;;
     --compiler-flavors=* ) compiler_flavors="${1#*=}"; shift ;;

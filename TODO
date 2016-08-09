@@ -3,6 +3,15 @@
 fix vlc... :| then patch for DVD :)
 poor audio sdl ffplay something?
 try more march, does it really even matter?
+  compare with gcc 4.9.3 ?? grr
+
+nvidia build various :)
+
+nvresize build
+
+add cygwin "cygwin bash" prompt [and combine...]
+
+add LGPL to the normal releases, why not? (shared and static)
 
 == maybe/never do, more on the never... ==
 
