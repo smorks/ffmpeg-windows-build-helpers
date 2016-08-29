@@ -234,7 +234,7 @@ do_svn_checkout() {
 update_to_desired_git_branch_or_revision() {
   local to_dir="$1"
   local desired_branch="$2" # or tag or whatever...
-  if [ -n "$desired_branch" ]; then
+  if [ ! -z "$desired_branch" ]; then
     pushd $to_dir
       echo "git checkout'ing $desired_branch"
       git checkout "$desired_branch" || exit 1 # if this fails, nuke the directory first...
@@ -247,50 +247,48 @@ do_git_checkout() {
   local repo_url="$1"
   local to_dir="$2"
   if [[ -z $to_dir ]]; then
-    echo "got empty to dir for git checkout?"
-    exit 1
+    to_dir=$(basename $repo_url | sed s/\.git/_git/) # http://y/abc.git -> abc_git
   fi
   local desired_branch="$3"
   if [ ! -d $to_dir ]; then
     echo "Downloading (via git clone) $to_dir from $repo_url"
     rm -rf $to_dir.tmp # just in case it was interrupted previously...
-    # prevent partial checkouts by renaming it only after success
     git clone $repo_url $to_dir.tmp || exit 1
+    # prevent partial checkouts by renaming it only after success
     mv $to_dir.tmp $to_dir
-    echo "done downloading $to_dir"
-    update_to_desired_git_branch_or_revision $to_dir $desired_branch
+    echo "done git cloning to $to_dir"
+    cd $to_dir
   else
     cd $to_dir
-    old_git_version=`git rev-parse HEAD`
-
-    if [[ -z $desired_branch ]]; then
-      if [[ $git_get_latest = "y" ]]; then
-        echo "Updating to latest $to_dir git version [origin/master]..."
-        git fetch
-        git merge origin/master || exit 1
-      else
-        echo "not doing git get latest pull for latest code $to_dir"
-      fi
+    if [[ $git_get_latest = "y" ]]; then
+      git fetch # need this no matter what
     else
-      if [[ $git_get_latest = "y" ]]; then
-        echo "Doing git fetch $to_dir in case it affects the desired branch [$desired_branch]"
-        git fetch
-        # I think unneeded, and it caused the annoying merge commit message commit pop up when tracking branches...maybe needed a checkout first?
-        # git merge $desired_branch || exit 1
-      else
-        echo "not doing git fetch $to_dir to see if it affected desired branch [$desired_branch]"
-      fi
+      echo "not doing git get latest pull for latest code $to_dir"
     fi
-    update_to_desired_git_branch_or_revision "." $desired_branch
-    new_git_version=`git rev-parse HEAD`
-    if [[ "$old_git_version" != "$new_git_version" ]]; then
-      echo "got upstream changes, forcing re-configure."
-      rm -f already*
-    else
-      echo "got no new upstream changes, not forcing re-configure..."
-    fi 
-    cd ..
   fi
+
+  old_git_version=`git rev-parse HEAD`
+
+  if [[ -z $desired_branch ]]; then
+    git checkout master || exit 1 # in case they were on some other branch before [ex: going between ffmpeg release tag]
+    if [[ $git_get_latest = "y" ]]; then
+      echo "Updating to latest $to_dir git version [origin/master]..."
+      git merge origin/master || exit 1
+    fi
+  else
+    echo "git checkout'ing $desired_branch"
+    git checkout "$desired_branch" || exit 1
+    git merge "$desired_branch" || exit 1 # get incoming changes to a branch 
+  fi
+
+  new_git_version=`git rev-parse HEAD`
+  if [[ "$old_git_version" != "$new_git_version" ]]; then
+    echo "got upstream changes, forcing re-configure."
+    rm -f already*
+  else
+    echo "got no code changes, not forcing reconfigure for that..."
+  fi 
+  cd ..
 }
 
 get_small_touchfile_name() { # have to call with assignment like a=$(get_small...)
@@ -317,7 +315,7 @@ do_configure() {
     if [ -f bootstrap ]; then
       ./bootstrap # some need this to create ./configure :|
     fi
-    if [ -f bootstrap.sh ]; then
+    if [ ! -f $configure_name && -f bootstrap.sh ]; then # fftw wants to only run this if no configure :|
       ./bootstrap.sh
     fi
     if [[ ! -f $configure_name ]]; then
@@ -464,7 +462,7 @@ generic_download_and_make_and_install() {
 
 do_git_checkout_and_make_install() {
   local url=$1
-  local git_checkout_name=$(basename $url | sed s/\.git/_git/) # abc.git -> abc_git
+  local git_checkout_name=$(basename $url | sed s/\.git/_git/) # http://y/abc.git -> abc_git
   do_git_checkout $url $git_checkout_name
   cd $git_checkout_name
     generic_configure_make_install
@@ -649,7 +647,7 @@ build_libx264() {
 build_librtmp() {
   #  download_and_unpack_file http://rtmpdump.mplayerhq.hu/download/rtmpdump-2.3.tgz # has some odd configure failure
 
-  do_git_checkout "http://repo.or.cz/r/rtmpdump.git" rtmpdump_git 
+  do_git_checkout "http://repo.or.cz/r/rtmpdump.git" 
   cd rtmpdump_git/librtmp
   do_make_and_make_install "CRYPTO=GNUTLS OPT=-O2 CROSS_COMPILE=$cross_prefix SHARED=no prefix=$mingw_w64_x86_64_prefix"
   #make install CRYPTO=GNUTLS OPT='-O2 -g' "CROSS_COMPILE=$cross_prefix" SHARED=no "prefix=$mingw_w64_x86_64_prefix" || exit 1
@@ -694,7 +692,7 @@ build_qt() {
 }
 
 build_libsoxr() {
-  download_and_unpack_file http://sourceforge.net/projects/soxr/files/soxr-0.1.2-Source.tar.xz 
+  download_and_unpack_file https://sourceforge.net/projects/soxr/files/soxr-0.1.2-Source.tar.xz 
   cd soxr-0.1.2-Source
     do_cmake_and_install "-DHAVE_WORDS_BIGENDIAN_EXITCODE=0  -DBUILD_SHARED_LIBS:bool=off -DBUILD_TESTS:BOOL=OFF"
   cd ..
@@ -702,8 +700,8 @@ build_libsoxr() {
 
 
 build_libebur128() {
-  do_git_checkout https://github.com/jiixyj/libebur128.git lib_ebur128_git
-  cd lib_ebur128_git
+  do_git_checkout https://github.com/jiixyj/libebur128.git
+  cd libebur128_git
     sed -i.bak 's/ebur128 SHARED ebur128.c/ebur128 STATIC ebur128.c/' ebur128/CMakeLists.txt  # no option for STATIC only [?] removed shared LOL
     do_cmake_and_install "-DENABLE_INTERNAL_QUEUE_H:BOOL=ON"
     # can't add -lspeexdsp to its .pc file, it doesn't have one, so just add to ffmpeg configure flags <sigh> XXXX remove once ebur bumped and it doesn't have that dependency as much [?]
@@ -727,7 +725,7 @@ build_libsndfile() {
 
 build_libbs2b() {
   export ac_cv_func_malloc_0_nonnull=yes # rp_alloc compile failure yikes
-  generic_download_and_make_and_install http://downloads.sourceforge.net/project/bs2b/libbs2b/3.1.0/libbs2b-3.1.0.tar.gz
+  generic_download_and_make_and_install https://downloads.sourceforge.net/project/bs2b/libbs2b/3.1.0/libbs2b-3.1.0.tar.gz
   unset ac_cv_func_malloc_0_nonnull
 }
 
@@ -756,13 +754,13 @@ build_libwebp() {
 }
 
 build_libpng() {
-  # generic_download_and_make_and_install http://download.sourceforge.net/libpng/libpng-1.6.12.tar.xz 
-  generic_download_and_make_and_install http://download.sourceforge.net/libpng/libpng-1.5.26.tar.xz  # libtheora can't take 1.6.x :|
+  # generic_download_and_make_and_install https://download.sourceforge.net/libpng/libpng-1.6.12.tar.xz 
+  generic_download_and_make_and_install https://download.sourceforge.net/libpng/libpng-1.5.26.tar.xz  # libtheora can't take 1.6.x :|
 }
 
 build_libopenjpeg() {
   # does openjpeg 2.0 work with ffmpeg? possibly not yet...
-  download_and_unpack_file http://sourceforge.net/projects/openjpeg.mirror/files/1.5.2/openjpeg-1.5.2.tar.gz
+  download_and_unpack_file https://sourceforge.net/projects/openjpeg.mirror/files/1.5.2/openjpeg-1.5.2.tar.gz
   cd openjpeg-1.5.2
     export CFLAGS="$CFLAGS -DOPJ_STATIC" # see https://github.com/rdp/ffmpeg-windows-build-helpers/issues/37
     generic_configure_make_install
@@ -773,11 +771,11 @@ build_libopenjpeg() {
 build_libvpx() {
   local config_options=""
   if [[ true || $prefer_stable = "y" ]]; then # unstable is just messed :|
-    download_and_unpack_file http://storage.googleapis.com/downloads.webmproject.org/releases/webm/libvpx-1.5.0.tar.bz2
+    download_and_unpack_file https://storage.googleapis.com/downloads.webmproject.org/releases/webm/libvpx-1.5.0.tar.bz2
     cd libvpx-1.5.0
   else
     config_options="--enable-vp10 --enable-vp10-encoder --enable-vp10-decoder" #enable vp10 for experimental use
-    do_git_checkout https://chromium.googlesource.com/webm/libvpx "libvpx_git"
+    do_git_checkout https://chromium.googlesource.com/webm/libvpx
     cd libvpx_git
   fi
   export CROSS="$cross_prefix"
@@ -794,7 +792,7 @@ build_libvpx() {
 
 
 build_libilbc() {
-  do_git_checkout https://github.com/dekkers/libilbc.git libilbc_git
+  do_git_checkout https://github.com/dekkers/libilbc.git
   cd libilbc_git
   if [[ ! -f "configure" ]]; then
     autoreconf -fiv || exit 1 # failure here, OS X means "you need libtoolize" perhaps? http://betterlogic.com/roger/2014/12/ilbc-cross-compile-os-x-mac-woe/
@@ -872,24 +870,24 @@ build_libdvdnav() {
 }
 
 build_libdvdcss() {
-  generic_download_and_make_and_install http://download.videolan.org/pub/videolan/libdvdcss/1.2.13/libdvdcss-1.2.13.tar.bz2
+  generic_download_and_make_and_install https://download.videolan.org/pub/videolan/libdvdcss/1.2.13/libdvdcss-1.2.13.tar.bz2
 }
 
 build_libopencore() {
-  generic_download_and_make_and_install http://sourceforge.net/projects/opencore-amr/files/opencore-amr/opencore-amr-0.1.3.tar.gz
-  generic_download_and_make_and_install http://sourceforge.net/projects/opencore-amr/files/vo-amrwbenc/vo-amrwbenc-0.1.2.tar.gz
+  generic_download_and_make_and_install https://sourceforge.net/projects/opencore-amr/files/opencore-amr/opencore-amr-0.1.3.tar.gz
+  generic_download_and_make_and_install https://sourceforge.net/projects/opencore-amr/files/vo-amrwbenc/vo-amrwbenc-0.1.2.tar.gz
 }
 
 build_libdlfcn() {
-  do_git_checkout https://github.com/dlfcn-win32/dlfcn-win32.git dlfcn-win32 
-  cd dlfcn-win32
+  do_git_checkout https://github.com/dlfcn-win32/dlfcn-win32.git 
+  cd dlfcn-win32_git
     do_configure "--disable-shared --enable-static --cross-prefix=$cross_prefix --prefix=$mingw_w64_x86_64_prefix" # rejects some normal cross compile options so custom here
     do_make_and_make_install
   cd ..
 }
 
 build_libjpeg_turbo() {
-  download_and_unpack_file http://sourceforge.net/projects/libjpeg-turbo/files/1.5.0/libjpeg-turbo-1.5.0.tar.gz
+  download_and_unpack_file https://sourceforge.net/projects/libjpeg-turbo/files/1.5.0/libjpeg-turbo-1.5.0.tar.gz
   cd libjpeg-turbo-1.5.0
     #do_cmake_and_install "-DNASM=yasm" # couldn't figure out a static only build with cmake...maybe you can these days dunno
     generic_configure "NASM=yasm"
@@ -916,7 +914,7 @@ build_libspeex() {
   #  generic_configure "LDFLAGS=-lwinmm" # speexdec.exe needs this :|
   #  do_make_and_make_install
   #cd ..
-  do_git_checkout https://github.com/xiph/speex.git speex_git
+  do_git_checkout https://github.com/xiph/speex.git
   cd speex_git
     generic_configure_make_install
   cd ..
@@ -941,7 +939,7 @@ build_libfribidi() {
     generic_configure_make_install
   cd ..
 
-  #do_git_checkout http://anongit.freedesktop.org/git/fribidi/fribidi.git fribidi_git
+  #do_git_checkout http://anongit.freedesktop.org/git/fribidi/fribidi.git
   #cd fribidi_git
   #  ./bootstrap # couldn't figure out how to make this work...
   #  generic_configure_make_install
@@ -967,7 +965,7 @@ build_gmp() {
 }
 
 build_orc() {
-  generic_download_and_make_and_install http://download.videolan.org/contrib/orc-0.4.18.tar.gz
+  generic_download_and_make_and_install https://download.videolan.org/contrib/orc-0.4.18.tar.gz
 }
 
 build_libxml2() {
@@ -981,7 +979,7 @@ build_libbluray() {
 }
 
 build_libschroedinger() {
-  download_and_unpack_file http://download.videolan.org/contrib/schroedinger-1.0.11.tar.gz
+  download_and_unpack_file https://download.videolan.org/contrib/schroedinger-1.0.11.tar.gz
   cd schroedinger-1.0.11
     generic_configure
     sed -i.bak 's/testsuite//' Makefile
@@ -991,8 +989,8 @@ build_libschroedinger() {
 }
 
 build_gnutls() {
-  download_and_unpack_file ftp://ftp.gnutls.org/gcrypt/gnutls/v3.4/gnutls-3.4.13.tar.xz
-  cd gnutls-3.4.13
+  download_and_unpack_file ftp://ftp.gnutls.org/gcrypt/gnutls/v3.4/gnutls-3.4.14.tar.xz
+  cd gnutls-3.4.14
     sed -i.bak 's/mkstemp(tmpfile)/ -1 /g' src/danetool.c # fix x86_64 absent? but danetool is just an exe AFAICT so this hack should be ok...
     # --disable-cxx don't need the c++ version, in an effort to cut down on size... XXXX test size difference... 
     # --enable-local-libopts to allow building with local autogen installed, 
@@ -1014,7 +1012,7 @@ build_libnettle() {
 }
 
 build_bzlib2() {
-  download_and_unpack_file http://fossies.org/linux/misc/bzip2-1.0.6.tar.gz
+  download_and_unpack_file https://fossies.org/linux/misc/bzip2-1.0.6.tar.gz
   cd bzip2-1.0.6
     apply_patch $github/patches/bzip2_cross_compile.diff
     do_make "$make_prefix_options libbz2.a bzip2 bzip2recover install"
@@ -1022,7 +1020,7 @@ build_bzlib2() {
 }
 
 build_zlib() {
-  download_and_unpack_file http://sourceforge.net/projects/libpng/files/zlib/1.2.8/zlib-1.2.8.tar.gz
+  download_and_unpack_file https://sourceforge.net/projects/libpng/files/zlib/1.2.8/zlib-1.2.8.tar.gz
   cd zlib-1.2.8
     do_configure "--static --prefix=$mingw_w64_x86_64_prefix"
     do_make_and_make_install "$make_prefix_options ARFLAGS=rcs"
@@ -1048,7 +1046,7 @@ build_libxvid() {
 }
 
 build_fontconfig() {
-  download_and_unpack_file http://www.freedesktop.org/software/fontconfig/release/fontconfig-2.11.94.tar.gz 
+  download_and_unpack_file https://www.freedesktop.org/software/fontconfig/release/fontconfig-2.11.94.tar.gz 
   cd fontconfig-2.11.94
     export CFLAGS= # compile fails with -march=sandybridge ... with mingw 4.0.6 at least ...
     generic_configure --disable-docs
@@ -1061,7 +1059,7 @@ build_fontconfig() {
 
 build_openssl() {
   # warning, this is a very old version of openssl since we don't really use it anymore hasn't been updated in awhile...
-  download_and_unpack_file http://www.openssl.org/source/openssl-1.0.1q.tar.gz
+  download_and_unpack_file https://www.openssl.org/source/openssl-1.0.1q.tar.gz
   cd openssl-1.0.1q
   #export CC="${cross_prefix}gcc"
   #export AR="${cross_prefix}ar"
@@ -1098,8 +1096,8 @@ build_libnvenc() {
 }
 
 build_intel_quicksync_mfx() { # i.e. qsv
-  do_git_checkout https://github.com/lu-zero/mfx_dispatch.git mfx_dispatch_git_lu_zero
-  cd mfx_dispatch_git_lu_zero
+  do_git_checkout https://github.com/lu-zero/mfx_dispatch.git # lu-zero??
+  cd mfx_dispatch_git
     if [[ ! -f "configure" ]]; then
       autoreconf -fiv || exit 1
     fi
@@ -1108,8 +1106,8 @@ build_intel_quicksync_mfx() { # i.e. qsv
 }
 
 build_fdk_aac() {
-  #generic_download_and_make_and_install http://sourceforge.net/projects/opencore-amr/files/fdk-aac/fdk-aac-0.1.0.tar.gz
-  do_git_checkout https://github.com/mstorsjo/fdk-aac.git fdk-aac_git
+  #generic_download_and_make_and_install https://sourceforge.net/projects/opencore-amr/files/fdk-aac/fdk-aac-0.1.0.tar.gz
+  do_git_checkout https://github.com/mstorsjo/fdk-aac.git
   cd fdk-aac_git
     if [[ ! -f "configure" ]]; then
       autoreconf -fiv || exit 1
@@ -1119,11 +1117,11 @@ build_fdk_aac() {
 }
 
 build_libexpat() {
-  generic_download_and_make_and_install http://sourceforge.net/projects/expat/files/expat/2.1.0/expat-2.1.0.tar.gz
+  generic_download_and_make_and_install https://sourceforge.net/projects/expat/files/expat/2.1.0/expat-2.1.0.tar.gz
 }
 
 build_iconv() {
-  download_and_unpack_file http://ftp.gnu.org/pub/gnu/libiconv/libiconv-1.14.tar.gz 
+  download_and_unpack_file https://ftp.gnu.org/pub/gnu/libiconv/libiconv-1.14.tar.gz 
   cd libiconv-1.14
     export CFLAGS=-O2 # ??
     generic_configure_make_install
@@ -1148,7 +1146,7 @@ build_freetype() {
 build_sdl() {
   # apparently ffmpeg expects prefix-sdl-config not sdl-config that they give us, so rename...
   export CFLAGS=-DDECLSPEC=  # avoid SDL trac tickets 939 and 282, and not worried about optimizing yet...
-  generic_download_and_make_and_install http://www.libsdl.org/release/SDL-1.2.15.tar.gz
+  generic_download_and_make_and_install https://www.libsdl.org/release/SDL-1.2.15.tar.gz
   reset_cflags
   mkdir -p temp
   cd temp # so paths will work out right
@@ -1162,11 +1160,11 @@ build_sdl() {
 }
 
 build_faac() {
-  generic_download_and_make_and_install http://downloads.sourceforge.net/faac/faac-1.28.tar.gz faac-1.28 "--with-mp4v2=no"
+  generic_download_and_make_and_install https://downloads.sourceforge.net/faac/faac-1.28.tar.gz faac-1.28 "--with-mp4v2=no"
 }
 
 build_lame() {
-  download_and_unpack_file http://sourceforge.net/projects/lame/files/lame/3.99/lame-3.99.5.tar.gz
+  download_and_unpack_file https://sourceforge.net/projects/lame/files/lame/3.99/lame-3.99.5.tar.gz
   cd lame-3.99.5
     apply_patch $github/patches/lame3.patch
     generic_configure --enable-nasm
@@ -1174,8 +1172,8 @@ build_lame() {
   cd ..
 }
 
-build_vamp_plugin() {
-  download_and_unpack_file https://code.soundsoftware.ac.uk/attachments/download/1520/vamp-plugin-sdk-2.6.tar.gz # require sndfile
+build_vamp_plugin() { 
+  download_and_unpack_file https://sourceforge.net/projects/ffmpegwindowsbi/files/dependency_libraries/vamp-plugin-sdk-2.6.tar.gz
   cd vamp-plugin-sdk-2.6
     generic_configure
     do_make_and_make_install "$make_prefix_options sdkstatic"
@@ -1183,7 +1181,7 @@ build_vamp_plugin() {
 }
 
 build_fftw() {
-  generic_download_and_make_and_install http://www.fftw.org/fftw-3.3.4.tar.gz # said to make it "double precision-er"
+  generic_download_and_make_and_install http://www.fftw.org/fftw-3.3.5.tar.gz # said to make it "double precision-er"
 }
 
 build_libsamplerate() {
@@ -1206,7 +1204,7 @@ build_librubberband() {
 }
 
 build_zvbi() {
-  download_and_unpack_file http://sourceforge.net/projects/zapping/files/zvbi/0.2.35/zvbi-0.2.35.tar.bz2
+  download_and_unpack_file https://sourceforge.net/projects/zapping/files/zvbi/0.2.35/zvbi-0.2.35.tar.bz2
   cd zvbi-0.2.35
     apply_patch $github/patches/zvbi-win32.patch
     apply_patch $github/patches/zvbi-ioctl.patch
@@ -1222,7 +1220,7 @@ build_zvbi() {
 }
 
 build_libmodplug() {
-  generic_download_and_make_and_install http://sourceforge.net/projects/modplug-xmms/files/libmodplug/0.8.8.5/libmodplug-0.8.8.5.tar.gz
+  generic_download_and_make_and_install https://sourceforge.net/projects/modplug-xmms/files/libmodplug/0.8.8.5/libmodplug-0.8.8.5.tar.gz
   # unfortunately this sed isn't enough, though I think it should be [so we add --extra-libs=-lstdc++ to FFmpegs configure] http://trac.ffmpeg.org/ticket/1539
   sed -i.bak 's/-lmodplug.*/-lmodplug -lstdc++/' "$PKG_CONFIG_PATH/libmodplug.pc" # huh ?? c++?
   sed -i.bak 's/__declspec(dllexport)//' "$mingw_w64_x86_64_prefix/include/libmodplug/modplug.h" #strip DLL import/export directives
@@ -1253,7 +1251,7 @@ build_libproxy() {
 }
 
 build_lua() {
-  download_and_unpack_file http://www.lua.org/ftp/lua-5.3.3.tar.gz
+  download_and_unpack_file https://www.lua.org/ftp/lua-5.3.3.tar.gz
   cd lua-5.3.3
     export AR="${cross_prefix}ar rcu" # needs rcu parameter so have to call it out different :|
     do_make "CC=${cross_prefix}gcc RANLIB=${cross_prefix}ranlib generic" # generic == "generic target" and seems to result in a static build, no .exe's blah blah the mingw option doesn't even build liblua.a
@@ -1264,7 +1262,7 @@ build_lua() {
 }
 
 build_twolame() {
-  generic_download_and_make_and_install http://sourceforge.net/projects/twolame/files/twolame/0.3.13/twolame-0.3.13.tar.gz twolame-0.3.13 "CPPFLAGS=-DLIBTWOLAME_STATIC"
+  generic_download_and_make_and_install https://sourceforge.net/projects/twolame/files/twolame/0.3.13/twolame-0.3.13.tar.gz twolame-0.3.13 "CPPFLAGS=-DLIBTWOLAME_STATIC"
 }
 
 build_frei0r() {
@@ -1277,15 +1275,15 @@ build_frei0r() {
 }
 
 build_vidstab() {
-  do_git_checkout https://github.com/georgmartius/vid.stab.git vid.stab "430b4cffeb" # 0.9.8
-  cd vid.stab
+  do_git_checkout https://github.com/georgmartius/vid.stab.git vid.stab_git "430b4cffeb" # 0.9.8
+  cd vid.stab_git
     sed -i.bak "s/SHARED/STATIC/g" CMakeLists.txt # static build-ify
     do_cmake_and_install
   cd ..
 }
 
 build_libcurl() {
-  generic_download_and_make_and_install http://curl.haxx.se/download/curl-7.46.0.tar.gz
+  generic_download_and_make_and_install https://curl.haxx.se/download/curl-7.46.0.tar.gz
 }
 
 build_netcdf() {
@@ -1299,7 +1297,7 @@ build_netcdf() {
 
 build_libhdhomerun() {
   exit 1 # still broken unfortunately, for cross compile :|
-  download_and_unpack_file http://download.silicondust.com/hdhomerun/libhdhomerun_20150826.tgz libhdhomerun
+  download_and_unpack_file https://download.silicondust.com/hdhomerun/libhdhomerun_20150826.tgz libhdhomerun
   cd libhdhomerun
     do_make CROSS_COMPILE=$cross_prefix  OS=Windows_NT
   cd ..
@@ -1308,13 +1306,13 @@ build_libhdhomerun() {
 build_dvbtee_app() {
   build_libcurl # it "can use this" so why not
 #  build_libhdhomerun # broken but dependency apparently :|
-  do_git_checkout https://github.com/mkrufky/libdvbtee.git libdvbtee
-  cd libdvbtee
+  do_git_checkout https://github.com/mkrufky/libdvbtee.git 
+  cd libdvbtee_git
     # checkout its submodule, apparently required
     if [ ! -e libdvbpsi/bootstrap ]; then
       rm -rf libdvbpsi # remove placeholder
-      do_git_checkout https://github.com/mkrufky/libdvbpsi.git libdvbpsi
-      cd libdvbpsi
+      do_git_checkout https://github.com/mkrufky/libdvbpsi.git
+      cd libdvbpsi_git
         generic_configure_make_install # library dependency submodule... TODO don't install it, just leave it local :)
       cd ..
     fi
@@ -1341,7 +1339,7 @@ build_vlc() {
   echo "not building vlc, broken dependencies or something weird"
   return
 
-  do_git_checkout https://github.com/videolan/vlc.git vlc_git
+  do_git_checkout https://github.com/videolan/vlc.git
   cd vlc_git
   # apply_patch https://raw.githubusercontent.com/rdp/ffmpeg-windows-build-helpers/master/patches/vlc_localtime_s.patch # git revision needs it...
 
@@ -1384,9 +1382,9 @@ build_mplayer() {
   build_libjpeg_turbo
   build_libdvdread
   build_libdvdnav
-  download_and_unpack_file http://sourceforge.net/projects/mplayer-edl/files/mplayer-export-snapshot.2014-05-19.tar.bz2 mplayer-export-2014-05-19
+  download_and_unpack_file https://sourceforge.net/projects/mplayer-edl/files/mplayer-export-snapshot.2014-05-19.tar.bz2 mplayer-export-2014-05-19
   cd mplayer-export-2014-05-19
-  do_git_checkout https://github.com/FFmpeg/FFmpeg ffmpeg d43c303038e9bd # known to work
+  do_git_checkout https://github.com/FFmpeg/FFmpeg ffmpeg d43c303038e9bd # known compatible commit
   export LDFLAGS='-lpthread -ldvdnav -ldvdread -ldvdcss' # not compat with newer dvdread possibly? huh wuh?
   export CFLAGS=-DHAVE_DVDCSS_DVDCSS_H
   do_configure "--enable-cross-compile --host-cc=cc --cc=${cross_prefix}gcc --windres=${cross_prefix}windres --ranlib=${cross_prefix}ranlib --ar=${cross_prefix}ar --as=${cross_prefix}as --nm=${cross_prefix}nm --enable-runtime-cpudetection --extra-cflags=$CFLAGS --with-dvdnav-config=$mingw_w64_x86_64_prefix/bin/dvdnav-config --disable-dvdread-internal --disable-libdvdcss-internal --disable-w32threads --enable-pthreads --extra-libs=-lpthread --enable-debug --enable-ass-internal --enable-dvdread --enable-dvdnav --disable-libvpx-lavc" # haven't reported the ldvdcss thing, think it's to do with possibly it not using dvdread.pc [?] XXX check with trunk
@@ -1408,8 +1406,8 @@ build_mplayer() {
 build_mp4box() { # like build_gpac
   # This script only builds the gpac_static lib plus MP4Box. Other tools inside
   # specify revision until this works: https://sourceforge.net/p/gpac/discussion/287546/thread/72cf332a/
-  do_git_checkout https://github.com/gpac/gpac.git mp4box_gpac
-  cd mp4box_gpac
+  do_git_checkout https://github.com/gpac/gpac.git mp4box_gpac_git
+  cd mp4box_gpac_git
   # are these tweaks needed? If so then complain to the mp4box people about it?
   sed -i.bak "s/has_dvb4linux=\"yes\"/has_dvb4linux=\"no\"/g" configure
   sed -i.bak "s/`uname -s`/MINGW32/g" configure
@@ -1432,7 +1430,7 @@ build_mp4box() { # like build_gpac
 }
 
 build_libMXF() {
-  download_and_unpack_file http://sourceforge.net/projects/ingex/files/1.0.0/libMXF/libMXF-src-1.0.0.tgz "libMXF-src-1.0.0"
+  download_and_unpack_file https://sourceforge.net/projects/ingex/files/1.0.0/libMXF/libMXF-src-1.0.0.tgz "libMXF-src-1.0.0"
   cd libMXF-src-1.0.0
   apply_patch $github/patches/libMXF.diff
   do_make "MINGW_CC_PREFIX=$cross_prefix"
@@ -1625,10 +1623,10 @@ build_dependencies() {
   build_libx265
   build_libopenh264
 
-  build_vamp_plugin
+  build_vamp_plugin # requires libsndfile
   build_fftw
   build_libsamplerate
-  build_librubberband # needs libsndfile, vamp_plugin, fftw, libsamplerate
+  build_librubberband # needs libsndfile, vamp_plugin [though it never uses it], fftw, libsamplerate [some of which it doesn't have to use, but configure require they be installed, so we use them anyway...gah]
 
   build_lame
   build_twolame
