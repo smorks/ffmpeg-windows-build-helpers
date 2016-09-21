@@ -64,8 +64,8 @@ check_missing_packages () {
 
   function version { echo "$@" | awk -F. '{ printf("%d%03d%03d%03d\n", $1,$2,$3,$4); }'; }
 
-  if [[ $(version $version_have)  < $(version '2.8.10') ]]; then
-    echo "your cmake version is too old $version_have wanted 2.8.10"
+  if [[ $(version $version_have)  < $(version '2.8.12') ]]; then
+    echo "your cmake version is too old $version_have wanted 2.8.12"
     exit 1
   fi
 
@@ -315,7 +315,7 @@ do_configure() {
     if [ -f bootstrap ]; then
       ./bootstrap # some need this to create ./configure :|
     fi
-    if [ ! -f $configure_name && -f bootstrap.sh ]; then # fftw wants to only run this if no configure :|
+    if [[ ! -f $configure_name && -f bootstrap.sh ]]; then # fftw wants to only run this if no configure :|
       ./bootstrap.sh
     fi
     if [[ ! -f $configure_name ]]; then
@@ -403,7 +403,7 @@ apply_patch() {
    if [[ -f $patch_name ]]; then
      rm $patch_name || exit 1 # remove old version in case it has been since updated
    fi
-   curl -4 $url -O --fail || exit 1
+   curl -4 --retry 5 $url -O --fail || exit 1
    echo "applying patch $patch_name"
    patch $patch_type < "$patch_name" || exit 1
    touch $patch_done_name || exit 1
@@ -433,7 +433,7 @@ download_and_unpack_file() {
     #  this option tells curl to resolve names to IPv4 addresses only.
     #  avoid a "network unreachable" error in certain [broken Ubuntu] configurations a user ran into once
 
-    curl -4 "$url" -O -L --fail || curl -4 "$url" -O -L --fail || exit 1 # retry once :) -L means "allow redirection" or some odd :|
+    curl -4 "$url" --retry 50 -O -L --fail || exit 1 # -L means "allow redirection" or some odd :|
     tar -xf "$output_name" || unzip "$output_name" || exit 1
     touch "$output_dir/unpacked.successfully" || exit 1
     rm "$output_name" || exit 1
@@ -805,9 +805,9 @@ build_libflite() {
   download_and_unpack_file http://www.speech.cs.cmu.edu/flite/packed/flite-1.4/flite-1.4-release.tar.bz2
   cd flite-1.4-release
    apply_patch $github/patches/flite_64.diff
-   sed -i.bak "s|i386-mingw32-|$cross_prefix|" configure*
+   sed -i.bak "s|i386-mingw32-|$cross_prefix|" configure
    generic_configure
-   cpu_count=1 # can't handle it
+   cpu_count=1 # can't handle it :|
    do_make
    cpu_count=$original_cpu_count
    # make install # it fails in error...
@@ -974,7 +974,7 @@ build_libxml2() {
 
 build_libbluray() {
   # higher versions require java, which is a bit trickier...
-  generic_download_and_make_and_install ftp://ftp.videolan.org/pub/videolan/libbluray/0.7.0/libbluray-0.7.0.tar.bz2
+  generic_download_and_make_and_install http://ftp.videolan.org/pub/videolan/libbluray/0.7.0/libbluray-0.7.0.tar.bz2
   sed -i.bak 's/-lbluray.*$/-lbluray -lfreetype -lexpat -lz -lbz2 -lxml2 -lws2_32 -liconv/' "$PKG_CONFIG_PATH/libbluray.pc" # not sure...is this a blu-ray bug, or VLC's problem in not pulling freetype's .pc file? or our problem with not using pkg-config --static ...
 }
 
@@ -989,7 +989,7 @@ build_libschroedinger() {
 }
 
 build_gnutls() {
-  download_and_unpack_file ftp://ftp.gnutls.org/gcrypt/gnutls/v3.4/gnutls-3.4.14.tar.xz
+  download_and_unpack_file http://www.mirrorservice.org/sites/ftp.gnupg.org/gcrypt/gnutls/v3.4/gnutls-3.4.14.tar.xz
   cd gnutls-3.4.14
     sed -i.bak 's/mkstemp(tmpfile)/ -1 /g' src/danetool.c # fix x86_64 absent? but danetool is just an exe AFAICT so this hack should be ok...
     # --disable-cxx don't need the c++ version, in an effort to cut down on size... XXXX test size difference... 
@@ -1078,21 +1078,6 @@ build_openssl() {
   unset AR
   unset RANLIB
   cd ..
-}
-
-build_libnvenc() {
-  if [[ ! -f $mingw_w64_x86_64_prefix/include/nvEncodeAPI.h ]]; then
-    rm -rf nvenc # just in case :)
-    mkdir nvenc
-    cd nvenc
-      echo "installing nvenc [nvidia gpu assisted encoder]"
-      curl -4 http://developer.download.nvidia.com/assets/cuda/files/nvidia_video_sdk_6.0.1.zip -O -L --fail || exit 1
-      unzip nvidia_video_sdk_6.0.1.zip
-      cp nvidia_video_sdk_6.0.1/Samples/common/inc/* $mingw_w64_x86_64_prefix/include
-    cd ..
-  else
-    echo "already installed nvenc"
-  fi
 }
 
 build_intel_quicksync_mfx() { # i.e. qsv
@@ -1288,7 +1273,7 @@ build_libcurl() {
 
 build_netcdf() {
   # used for sofalizer filter
-  download_and_unpack_file ftp://ftp.unidata.ucar.edu/pub/netcdf/netcdf-4.4.1.tar.gz
+  download_and_unpack_file http://gfd-dennou.org/arch/ucar/unidata/pub/netcdf/netcdf-4.4.1.tar.gz
   cd netcdf-4.4.1
     generic_configure --disable-netcdf-4 --disable-dap # its dependencies were *hard* LOL
     do_make_and_make_install
@@ -1509,7 +1494,7 @@ build_ffmpeg() {
   fi
 
   init_options="--arch=$arch --target-os=mingw32 --cross-prefix=$cross_prefix --pkg-config=pkg-config --disable-w32threads"
-  config_options="$init_options --enable-libsoxr --enable-fontconfig --enable-libass --enable-libbluray --enable-iconv --enable-libtwolame --extra-cflags=-DLIBTWOLAME_STATIC --enable-libzvbi --enable-libcaca --enable-libmodplug --extra-libs=-lstdc++ --extra-libs=-lpng --enable-decklink --extra-libs=-loleaut32  --enable-libmp3lame --enable-version3 --enable-zlib --enable-librtmp --enable-libvorbis --enable-libtheora --enable-libspeex --enable-libopenjpeg --enable-gnutls --enable-libgsm --enable-libfreetype --enable-libopus --enable-bzlib --enable-libopencore-amrnb --enable-libopencore-amrwb --enable-libvo-amrwbenc --enable-libschroedinger --enable-libvpx --enable-libilbc --enable-libwavpack --enable-libwebp --enable-libgme --enable-dxva2 --enable-avisynth --enable-gray --enable-libopenh264 --enable-nvenc --enable-libebur128 --enable-netcdf  --enable-libflite --enable-lzma --enable-libsnappy --enable-libzimg"
+  config_options="$init_options --enable-libsoxr --enable-fontconfig --enable-libass --enable-libbluray --enable-iconv --enable-libtwolame --extra-cflags=-DLIBTWOLAME_STATIC --enable-libzvbi --enable-libcaca --enable-libmodplug --extra-libs=-lstdc++ --extra-libs=-lpng --enable-decklink --extra-libs=-loleaut32  --enable-libmp3lame --enable-version3 --enable-zlib --enable-librtmp --enable-libvorbis --enable-libtheora --enable-libspeex --enable-libopenjpeg --enable-gnutls --enable-libgsm --enable-libfreetype --enable-libopus --enable-bzlib --enable-libopencore-amrnb --enable-libopencore-amrwb --enable-libvo-amrwbenc --enable-libschroedinger --enable-libvpx --enable-libilbc --enable-libwavpack --enable-libwebp --enable-libgme --enable-dxva2 --enable-avisynth --enable-gray --enable-libopenh264 --enable-libebur128 --enable-netcdf  --enable-libflite --enable-lzma --enable-libsnappy --enable-libzimg"
   if [[ $enable_gpl == 'y' ]]; then
     config_options="$config_options --enable-gpl --enable-libx264 --enable-libx265 --enable-frei0r --enable-filter=frei0r --enable-librubberband --enable-libvidstab --enable-libxavs --enable-libxvid"
   fi
@@ -1642,7 +1627,6 @@ build_dependencies() {
   build_libfribidi
   build_libass # needs freetype, needs fribidi, needs fontconfig
   build_libopenjpeg
-  build_libnvenc
   if [[ $build_intel_qsv = y ]]; then
     build_intel_quicksync_mfx
   fi
