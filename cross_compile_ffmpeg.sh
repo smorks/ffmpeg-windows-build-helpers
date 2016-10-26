@@ -1462,7 +1462,7 @@ build_ffmpeg() {
   local shared_or_static=$1
   local extra_postpend_configure_options=$2
   #local git_url="https://github.com/FFmpeg/FFmpeg.git"
-  local ffver="3.1.4"
+  local ffver="3.1.5"
   local output_dir="ffmpeg-$ffver"
   local ffurl="http://ffmpeg.org/releases/ffmpeg-${ffver}.tar.bz2"
   #local output_dir=$3
