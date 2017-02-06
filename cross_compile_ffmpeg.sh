@@ -50,7 +50,7 @@ check_missing_packages () {
 
   if [[ -n "${missing_packages[@]}" ]]; then
     clear
-    echo "Could not find the following execs (svn is actually package subversion, makeinfo is actually package texinfo if you're missing them): ${missing_packages[@]}"
+    echo "Could not find the following execs (svn is actually package subversion, makeinfo is actually package texinfo, hg is actually package mercurial if you're missing them): ${missing_packages[@]}"
     echo 'Install the missing packages before running this script.'
     echo "for ubuntu: $ sudo apt-get install subversion curl texinfo g++ bison flex cvs yasm automake libtool autoconf gcc cmake git make pkg-config zlib1g-dev mercurial unzip pax nasm -y" 
     echo "for gentoo (a non ubuntu distro): same as above, but no g++, no gcc, git is dev-vcs/git, zlib1g-dev is zlib, pkg-config is dev-util/pkgconfig, add ed..."
@@ -70,7 +70,7 @@ check_missing_packages () {
   fi
 
   if [[ ! -f /usr/include/zlib.h ]]; then
-    echo "warning: you may need to install zlib development headers first if you want to build mp4box [on ubuntu: $ apt-get install zlib1g-dev]" # XXX do like configure does and attempt to compile and include zlib.h instead?
+    echo "warning: you may need to install zlib development headers first if you want to build mp4-box [on ubuntu: $ apt-get install zlib1g-dev]" # XXX do like configure does and attempt to compile and include zlib.h instead?
     sleep 1
   fi
 
@@ -231,18 +231,6 @@ do_svn_checkout() {
   fi
 }
 
-update_to_desired_git_branch_or_revision() {
-  local to_dir="$1"
-  local desired_branch="$2" # or tag or whatever...
-  if [ ! -z "$desired_branch" ]; then
-    pushd $to_dir
-      echo "git checkout'ing $desired_branch"
-      git checkout "$desired_branch" || exit 1 # if this fails, nuke the directory first...
-      git merge "$desired_branch" || exit 1 # this would satisfy the case if they want to checkout a revision number, not a branch...
-    popd # in case it's a cd to ., don't want to cd to .. here...since sometimes we call it with a '.'
-  fi
-}
-
 do_git_checkout() {
   local repo_url="$1"
   local to_dir="$2"
@@ -270,8 +258,8 @@ do_git_checkout() {
   old_git_version=`git rev-parse HEAD`
 
   if [[ -z $desired_branch ]]; then
-    echo "doing git co master"
-    git checkout master || exit 1 # in case they were on some other branch before [ex: going between ffmpeg release tag]
+    echo "doing git checkout master"
+    git checkout master || exit 1 # in case they were on some other branch before [ex: going between ffmpeg release tags]
     if [[ $git_get_latest = "y" ]]; then
       echo "Updating to latest $to_dir git version [origin/master]..."
       git merge origin/master || exit 1
@@ -312,7 +300,7 @@ do_configure() {
   if [ ! -f "$touch_name" ]; then
     # make uninstall # does weird things when run under ffmpeg src so disabled for now...
 
-    echo "configuring $english_name ($PWD) as $ PATH=$path_addition:$original_path $configure_name $configure_options" # say it now in case bootstrap fails etc.
+    echo "configuring $english_name ($PWD) as $ PKG_CONFIG_PATH=$PKG_CONFIG_PATH PATH=$mingw_bin_path:\$PATH $configure_name $configure_options" # say it now in case bootstrap fails etc.
     if [ -f bootstrap ]; then
       ./bootstrap # some need this to create ./configure :|
     fi
@@ -339,7 +327,7 @@ do_make() {
 
   if [ ! -f $touch_name ]; then
     echo
-    echo "making $cur_dir2 as $ PATH=$path_addition:\$PATH make $extra_make_options"
+    echo "making $cur_dir2 as $ PATH=$mingw_bin_path:\$PATH make $extra_make_options"
     echo
     if [ ! -f configure ]; then
       nice make clean -j $cpu_count # just in case helpful if old junk left around and this is a 're make' and wasn't cleaned at reconfigure time
@@ -367,7 +355,7 @@ do_make_install() {
   fi
   local touch_name=$(get_small_touchfile_name already_ran_make_install "$make_install_options")
   if [ ! -f $touch_name ]; then
-    echo "make installing $(pwd) as $ PATH=$path_addition:\$PATH make $make_install_options"
+    echo "make installing $(pwd) as $ PATH=$mingw_bin_path:\$PATH make $make_install_options"
     nice make $make_install_options || exit 1
     touch $touch_name || exit 1
   fi
@@ -380,7 +368,7 @@ do_cmake() {
   if [ ! -f $touch_name ]; then
     rm -f already_* # reset so that make will run again if option just changed
     local cur_dir2=$(pwd)
-    echo doing cmake in $cur_dir2 with PATH=$path_addition:\$PATH with extra_args=$extra_args like this:
+    echo doing cmake in $cur_dir2 with PATH=$mingw_bin_path:\$PATH with extra_args=$extra_args like this:
     echo cmake –G”Unix Makefiles” . -DENABLE_STATIC_RUNTIME=1 -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_RANLIB=${cross_prefix}ranlib -DCMAKE_C_COMPILER=${cross_prefix}gcc -DCMAKE_CXX_COMPILER=${cross_prefix}g++ -DCMAKE_RC_COMPILER=${cross_prefix}windres -DCMAKE_INSTALL_PREFIX=$mingw_w64_x86_64_prefix $extra_args
     cmake –G”Unix Makefiles” . -DENABLE_STATIC_RUNTIME=1 -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_RANLIB=${cross_prefix}ranlib -DCMAKE_C_COMPILER=${cross_prefix}gcc -DCMAKE_CXX_COMPILER=${cross_prefix}g++ -DCMAKE_RC_COMPILER=${cross_prefix}windres -DCMAKE_INSTALL_PREFIX=$mingw_w64_x86_64_prefix $extra_args || exit 1
     touch $touch_name || exit 1
@@ -393,16 +381,16 @@ do_cmake_and_install() {
 }
 
 apply_patch() {
- local url=$1
+ local url=$1 # if you want it to use a local file instead of a url one [i.e. local file with local modifications] specify it like file://localhost/full/path/to/filename.patch
  local patch_type=$2
  if [[ -z $patch_type ]]; then
-   patch_type="-p0"
+   patch_type="-p0" # some are -p1 unfortunately, git's default
  fi
  local patch_name=$(basename $url)
  local patch_done_name="$patch_name.done"
  if [[ ! -e $patch_done_name ]]; then
    if [[ -f $patch_name ]]; then
-     rm $patch_name || exit 1 # remove old version in case it has been since updated
+     rm $patch_name || exit 1 # remove old version in case it has been since updated on the server...
    fi
    curl -4 --retry 5 $url -O --fail || exit 1
    echo "applying patch $patch_name"
@@ -477,6 +465,14 @@ build_libzimg() {
 generic_configure_make_install() {
   generic_configure # no parameters, force myself to break it up :)
   do_make_and_make_install
+}
+
+build_lsmash() { # an MP4 library
+  do_git_checkout https://github.com/l-smash/l-smash.git l-smash
+  cd l-smash
+  do_configure "--prefix=$mingw_w64_x86_64_prefix --cross-prefix=$cross_prefix" 
+  do_make_and_make_install
+  cd ..
 }
 
 build_libx265() {
@@ -600,7 +596,7 @@ build_libx264() {
     checkout_dir="${checkout_dir}_normal_bitdepth"
   fi
   
-  do_git_checkout "http://repo.or.cz/r/x264.git" $checkout_dir "origin/stable"
+  do_git_checkout "http://repo.or.cz/r/x264.git" $checkout_dir "origin/stable" # guess we always prefer stable here...
   cd $checkout_dir
 
   local configure_flags="--host=$host_target --enable-static --cross-prefix=$cross_prefix --prefix=$mingw_w64_x86_64_prefix --enable-strip" # --enable-win32thread --enable-debug is another useful option here?
@@ -770,22 +766,18 @@ build_libopenjpeg() {
 }
 
 build_libvpx() {
-  local config_options=""
-  if [[ true || $prefer_stable = "y" ]]; then # unstable is just messed :|
-    download_and_unpack_file https://storage.googleapis.com/downloads.webmproject.org/releases/webm/libvpx-1.5.0.tar.bz2
-    cd libvpx-1.5.0
+  local checkout_dir="libvpx_git"
+
+  do_git_checkout https://chromium.googlesource.com/webm/libvpx $checkout_dir v1.6.1 # [had probs with master once...so only a stable option presently] 
+  cd $checkout_dir
+  apply_patch https://raw.githubusercontent.com/rdp/ffmpeg-windows-build-helpers/master/patches/vpx_160_semaphore.patch -p1 # perhaps someday can remove this after 1.6.0 or mingw fixes it LOL
+  if [[ "$bits_target" = "32" ]]; then
+    local config_options="--target=x86-win32-gcc"
   else
-    config_options="--enable-vp10 --enable-vp10-encoder --enable-vp10-decoder" #enable vp10 for experimental use
-    do_git_checkout https://chromium.googlesource.com/webm/libvpx
-    cd libvpx_git
+    local config_options="--target=x86_64-win64-gcc"
   fi
   export CROSS="$cross_prefix"
-  if [[ "$bits_target" = "32" ]]; then
-    config_options="--target=x86-win32-gcc --prefix=$mingw_w64_x86_64_prefix --enable-static --disable-shared $config_options"
-  else
-    config_options="--target=x86_64-win64-gcc --prefix=$mingw_w64_x86_64_prefix --enable-static --disable-shared $config_options"
-  fi
-  do_configure "$config_options"
+  do_configure "$config_options --prefix=$mingw_w64_x86_64_prefix --enable-static --disable-shared --enable-vp9-highbitdepth"
   do_make_and_make_install
   unset CROSS
   cd ..
@@ -990,8 +982,8 @@ build_libschroedinger() {
 }
 
 build_gnutls() {
-  download_and_unpack_file http://www.mirrorservice.org/sites/ftp.gnupg.org/gcrypt/gnutls/v3.4/gnutls-3.4.14.tar.xz
-  cd gnutls-3.4.14
+  download_and_unpack_file http://www.mirrorservice.org/sites/ftp.gnupg.org/gcrypt/gnutls/v3.4/gnutls-3.4.17.tar.xz
+  cd gnutls-3.4.17
     sed -i.bak 's/mkstemp(tmpfile)/ -1 /g' src/danetool.c # fix x86_64 absent? but danetool is just an exe AFAICT so this hack should be ok...
     # --disable-cxx don't need the c++ version, in an effort to cut down on size... XXXX test size difference... 
     # --enable-local-libopts to allow building with local autogen installed, 
@@ -1148,7 +1140,13 @@ build_sdl() {
 build_sdl2() {
   # apparently ffmpeg expects prefix-sdl-config not sdl-config that they give us, so rename...
   export CFLAGS=-DDECLSPEC=  # avoid SDL trac tickets 939 and 282, and not worried about optimizing yet...
-  generic_download_and_make_and_install http://libsdl.org/release/SDL2-2.0.5.tar.gz
+  download_and_unpack_file http://libsdl.org/release/SDL2-2.0.5.tar.gz
+
+  cd SDL2-2.0.5
+     generic_configure
+     apply_patch https://raw.githubusercontent.com/rdp/ffmpeg-windows-build-helpers/master/patches/sdl2.xinput.diff
+     do_make_and_make_install 
+  cd ..
   reset_cflags
   mkdir -p temp
   cd temp # so paths will work out right
@@ -1414,7 +1412,8 @@ build_mp4box() { # like build_gpac
   sed -i.bak "s/has_dvb4linux=\"yes\"/has_dvb4linux=\"no\"/g" configure
   sed -i.bak "s/`uname -s`/MINGW32/g" configure
   # XXX do I want to disable more things here?
-  generic_configure "--static-mp4box --enable-static-bin --disable-oss-audio --extra-ldflags=-municode"
+  # ./sandbox/cross_compilers/mingw-w64-i686/bin/i686-w64-mingw32-sdl-config
+  generic_configure "--static-mp4box --enable-static-bin --disable-oss-audio --extra-ldflags=-municode --disable-x11 --sdl-cfg=${cross_prefix}sdl-config"
   # I seem unable to pass 3 libs into the same config line so do it with sed...
   sed -i.bak "s/EXTRALIBS=.*/EXTRALIBS=-lws2_32 -lwinmm -lz/g" config.mak
   cd src
@@ -1505,9 +1504,9 @@ build_ffmpeg() {
   cd $output_dir
   
   if [ "$bits_target" = "32" ]; then
-   local arch=x86
+    local arch=x86
   else
-   local arch=x86_64
+    local arch=x86_64
   fi
 
   init_options="--arch=$arch --target-os=mingw32 --cross-prefix=$cross_prefix --pkg-config=pkg-config --disable-w32threads"
@@ -1520,6 +1519,8 @@ build_ffmpeg() {
   if [[ $build_intel_qsv = y ]]; then
     config_options="$config_options --enable-libmfx" # [note, not windows xp friendly]
   fi
+  config_options="$config_options --enable-avresample" # guess this is some kind of libav specific thing (the FFmpeg fork) but L-Smash needs it so why not always build it :)
+  
   config_options="$config_options --extra-libs=-lpsapi" # dlfcn [frei0r?] requires this, has no .pc file should put in frei0r.pc? ...
   config_options="$config_options --extra-libs=-lspeexdsp" # libebur :|
   for i in $CFLAGS; do
@@ -1558,7 +1559,13 @@ build_ffmpeg() {
     make tools/ismindex.exe || exit 1
   fi
 
-  sed -i.bak 's/-lavutil -lm.*/-lavutil -lm -lpthread/' "$PKG_CONFIG_PATH/libavutil.pc" # XXX patch ffmpeg itself...
+  # XXX really ffmpeg should have set this up right but doesn't, patch FFmpeg itself instead...
+  if [[ $build_intel_qsv = y ]]; then
+    sed -i.bak 's/-lavutil -lm.*/-lavutil -lm -lmfx -lstdc++ -lpthread/' "$PKG_CONFIG_PATH/libavutil.pc"
+  else
+    sed -i.bak 's/-lavutil -lm.*/-lavutil -lm -lpthread/' "$PKG_CONFIG_PATH/libavutil.pc"
+  fi
+
   sed -i.bak 's/-lswresample -lm.*/-lswresample -lm -lsoxr/' "$PKG_CONFIG_PATH/libswresample.pc" # XXX patch ffmpeg
   echo "Done! You will find $bits_target bit $shared_or_static non_free=$non_free binaries in $(pwd)/*.exe"
   if [[ $shared_or_static == "shared" ]]; then
@@ -1568,10 +1575,27 @@ build_ffmpeg() {
   cd ..
 }
 
+build_lsw() {
+   # Build L-Smash-Works, which are plugins based on lsmash
+   #build_ffmpeg static # dependency, assume already built
+   build_lsmash # dependency
+   do_git_checkout https://github.com/VFR-maniac/L-SMASH-Works.git lsw
+   cd lsw/VapourSynth
+   do_configure "--prefix=$mingw_w64_x86_64_prefix --cross-prefix=$cross_prefix --target-os=mingw"
+   do_make_and_make_install
+   # AviUtl is 32bit-only
+   if [ "$bits_target" = "32" ]; then
+     cd ../AviUtl
+     do_configure "--prefix=$mingw_w64_x86_64_prefix --cross-prefix=$cross_prefix"
+     do_make
+   fi
+   cd ../..
+}
+
 find_all_build_exes() {
   local found=""
 # NB that we're currently in the sandbox dir...
-  for file in `find . -name ffmpeg.exe` `find . -name ffmpeg_g.exe` `find . -name ffplay.exe` `find . -name MP4Box.exe` `find . -name mplayer.exe` `find . -name mencoder.exe` `find . -name avconv.exe` `find . -name avprobe.exe` `find . -name x264.exe` `find . -name writeavidmxf.exe` `find . -name writeaviddv50.exe` `find . -name rtmpdump.exe` `find . -name x265.exe` `find . -name ismindex.exe` `find . -name dvbtee.exe`; do
+  for file in `find . -name ffmpeg.exe` `find . -name ffmpeg_g.exe` `find . -name ffplay.exe` `find . -name MP4Box.exe` `find . -name mplayer.exe` `find . -name mencoder.exe` `find . -name avconv.exe` `find . -name avprobe.exe` `find . -name x264.exe` `find . -name writeavidmxf.exe` `find . -name writeaviddv50.exe` `find . -name rtmpdump.exe` `find . -name x265.exe` `find . -name ismindex.exe` `find . -name dvbtee.exe` `find . -name boxdumper.exe` `find . -name muxer.exe ` `find . -name remuxer.exe` `find . -name timelineeditor.exe` `find . -name lwcolor.auc` `find . -name lwdumper.auf` `find . -name lwinput.aui` `find . -name lwmuxer.auf` `find . -name vslsmashsource.dll`; do
     found="$found $(readlink -f $file)"
   done
 
@@ -1680,6 +1704,9 @@ build_apps() {
   if [[ $build_vlc = "y" ]]; then
     build_vlc
   fi
+  if [[ $build_lsw = "y" ]]; then
+    build_lsw
+  fi  
 }
 
 # set some parameters initial values
@@ -1707,6 +1734,7 @@ else
   gcc_cpu_count=1 # compatible low RAM...
 fi
 
+# variables with their defaults
 build_ffmpeg_static=n
 build_ffmpeg_shared=y
 build_dvbtee=n
@@ -1714,6 +1742,7 @@ build_libmxf=n
 build_mp4box=n
 build_mplayer=n
 build_vlc=n
+build_lsw=n
 git_get_latest=y
 prefer_stable=y
 build_intel_qsv=y
@@ -1741,6 +1770,7 @@ while true; do
       --build-mp4box=n [builds MP4Box.exe from the gpac project] 
       --build-mplayer=n [builds mplayer.exe and mencoder.exe] 
       --build-vlc=n [builds a [rather bloated] vlc.exe] 
+      --build-lsw=n [builds L-Smash Works VapourSynth and AviUtl plugins]
       --build-ismindex=n [builds ffmpeg utility ismindex.exe]
       -a 'build all' builds ffmpeg, mplayer, vlc, etc. with all fixings turned on
       --build-dvbtee=n [build dvbtee.exe a DVB profiler]
@@ -1766,11 +1796,12 @@ while true; do
     --cflags=* ) 
        original_cflags="${1#*=}"; echo "setting cflags as $original_cflags"; shift ;;
     --build-vlc=* ) build_vlc="${1#*=}"; shift ;;
+    --build-lsw=* ) build_lsw="${1#*=}"; shift ;;
     --build-dvbtee=* ) build_dvbtee="${1#*=}"; shift ;;
     --disable-nonfree=* ) disable_nonfree="${1#*=}"; shift ;;
-    -a         ) compiler_flavors="multi"; build_mplayer=y; build_libmxf=y; build_mp4box=y; build_vlc=y; build_ffmpeg_shared=y; high_bitdepth=y; build_ffmpeg_static=y; 
-                 disable_nonfree=n; git_get_latest=y; sandbox_ok="y"; build_intel_qsv="y"; build_dvbtee="y"; build_x264_with_libav="y"; shift ;;
-       # this doesn't build everything, like 10 bit free ffmpeg, but it does exercise the "non default" code I suppose...
+    # this doesn't actually "build all", like doesn't build 10 high-bit LGPL ffmpeg, but it does exercise the "non default" type build options...
+    -a         ) compiler_flavors="multi"; build_mplayer=y; build_libmxf=y; build_mp4box=y; build_vlc=y; build_lsw=y; build_ffmpeg_shared=y; high_bitdepth=y; build_ffmpeg_static=y; build_lws=y;
+                 disable_nonfree=n; git_get_latest=y; sandbox_ok=y; build_intel_qsv=y; build_dvbtee=y; build_x264_with_libav=y; shift ;;
     -d         ) gcc_cpu_count=$cpu_count; disable_nonfree="y"; sandbox_ok="y"; compiler_flavors="win32"; git_get_latest="n"; shift ;;
     --compiler-flavors=* ) compiler_flavors="${1#*=}"; shift ;;
     --build-ffmpeg-static=* ) build_ffmpeg_static="${1#*=}"; shift ;;
@@ -1813,16 +1844,16 @@ if [[ $compiler_flavors == "multi" || $compiler_flavors == "win32" ]]; then
   echo "Starting 32-bit builds..."
   host_target='i686-w64-mingw32'
   mingw_w64_x86_64_prefix="$cur_dir/cross_compilers/mingw-w64-i686/$host_target"
-  path_addition="$cur_dir/cross_compilers/mingw-w64-i686/bin"
-  export PATH="$path_addition:$original_path"
+  mingw_bin_path="$cur_dir/cross_compilers/mingw-w64-i686/bin"
   export PKG_CONFIG_PATH="$cur_dir/cross_compilers/mingw-w64-i686/i686-w64-mingw32/lib/pkgconfig"
+  export PATH="$mingw_bin_path:$original_path"
   bits_target=32
-  cross_prefix="$cur_dir/cross_compilers/mingw-w64-i686/bin/i686-w64-mingw32-"
+  cross_prefix="$mingw_bin_path/i686-w64-mingw32-"
   make_prefix_options="CC=${cross_prefix}gcc AR=${cross_prefix}ar PREFIX=$mingw_w64_x86_64_prefix RANLIB=${cross_prefix}ranlib LD=${cross_prefix}ld STRIP=${cross_prefix}strip CXX=${cross_prefix}g++"
   mkdir -p win32
   cd win32
-  build_dependencies
-  build_apps
+    build_dependencies
+    build_apps
   cd ..
 fi
 
@@ -1831,16 +1862,16 @@ if [[ $compiler_flavors == "multi" || $compiler_flavors == "win64" ]]; then
   echo "**************Starting 64-bit builds..." # make it have a bit easier to you can see when 32 bit is done 
   host_target='x86_64-w64-mingw32'
   mingw_w64_x86_64_prefix="$cur_dir/cross_compilers/mingw-w64-x86_64/$host_target"
-  path_addition="$cur_dir/cross_compilers/mingw-w64-x86_64/bin"
-  export PATH="$path_addition:$original_path"
+  mingw_bin_path="$cur_dir/cross_compilers/mingw-w64-x86_64/bin"
+  export PATH="$mingw_bin_path:$original_path"
   export PKG_CONFIG_PATH="$cur_dir/cross_compilers/mingw-w64-x86_64/x86_64-w64-mingw32/lib/pkgconfig"
-  mkdir -p x86_64
   bits_target=64
-  cross_prefix="$cur_dir/cross_compilers/mingw-w64-x86_64/bin/x86_64-w64-mingw32-"
+  cross_prefix="$mingw_bin_path/x86_64-w64-mingw32-"
   make_prefix_options="CC=${cross_prefix}gcc AR=${cross_prefix}ar PREFIX=$mingw_w64_x86_64_prefix RANLIB=${cross_prefix}ranlib LD=${cross_prefix}ld STRIP=${cross_prefix}strip CXX=${cross_prefix}g++"
+  mkdir -p x86_64
   cd x86_64
-  build_dependencies
-  build_apps
+    build_dependencies
+    build_apps
   cd ..
 fi
 
