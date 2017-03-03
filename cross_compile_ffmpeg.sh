@@ -1326,6 +1326,8 @@ build_vlc() {
   # call out dependencies here since it's a lot, plus hierarchical FTW!
   # should be ffmpeg 1.1.1 or some odd?
 
+  echo "not building vlc, broken dependencies or something weird"
+  return
   # vlc's own dependencies:
   build_lua
   build_libdvdread
@@ -1336,8 +1338,6 @@ build_vlc() {
   build_qt
 
   # currently vlc itself currently broken :|
-  echo "not building vlc, broken dependencies or something weird"
-  return
 
   do_git_checkout https://github.com/videolan/vlc.git
   cd vlc_git
