@@ -490,7 +490,7 @@ fi
 
 if [[ ! -d "$package_name" ]]; then
   build_progress "$archive" 'Extracting'
-  if tar xvf "$archive"; then
+  if "$archive_type" -d <"$archive" | pax -r ; then
     build_progress 'done'
     return 0
   else
@@ -499,7 +499,7 @@ if [[ ! -d "$package_name" ]]; then
     wget -nv "$download_url" > >(build_log) 2>&1
     build_progress 'done'
     build_progress "$archive" 'Extracting'
-    tar xvf "$archive"
+    "$archive_type" -d <"$archive" | pax -r
     build_progress 'done'
   fi
 fi
@@ -874,7 +874,7 @@ else
     wget -nv -O "mingw-w64-$mingw_w64_release_ver.tar.bz2" http://downloads.sourceforge.net/project/mingw-w64/mingw-w64/mingw-w64-release/mingw-w64-v${mingw_w64_release_ver}.tar.bz2 > >(build_log) 2>&1 || print_error
     build_progress 'done'
     build_progress "mingw-w64-$mingw_w64_release_ver.tar.bz2" 'Extracting'
-    tar xvf "mingw-w64-$mingw_w64_release_ver.tar.bz2"
+    bzip2 -d <"mingw-w64-$mingw_w64_release_ver.tar.bz2" | pax -r
     build_progress 'done'
     mv "mingw-w64-v$mingw_w64_release_ver" "mingw-w64-$mingw_w64_release_ver"
   fi
@@ -882,7 +882,7 @@ fi
 }
 
 check_missing_packages () {
-local check_packages=('bison' 'm4' 'flex' 'git' 'svn' 'gcc' 'yasm' 'cvs' 'g++' 'make' 'xz' 'bzip2' 'gunzip' 'wget')
+local check_packages=('bison' 'm4' 'flex' 'git' 'svn' 'gcc' 'yasm' 'cvs' 'g++' 'make' 'xz' 'bzip2' 'pax' 'gunzip' 'wget')
 for package in "${check_packages[@]}"; do
   command -v "$package" >/dev/null || missing_packages=("$package" "${missing_packages[@]}")
 done
