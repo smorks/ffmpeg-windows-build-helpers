@@ -1016,14 +1016,13 @@ build_libflite() {
 }
 
 build_libsnappy() {
-  do_git_checkout https://github.com/google/snappy.git
+  do_git_checkout https://github.com/google/snappy.git snappy_git
   cd snappy_git
     if [[ ! -f Makefile.am.bak ]]; then # Library only.
       sed -i.bak "/# Unit/,+7d;/^dist/s/=.*/=/" Makefile.am
     fi
-    generic_configure
-    touch ./README # OS X needed this for reinstall :| unfortunately on linux it still fails, weird
-    do_make_and_make_install
+    do_cmake_and_install "-DBUILD_SHARED_LIBS=OFF -DBUILD_BINARY=OFF -DCMAKE_BUILD_TYPE=Release -DSNAPPY_BUILD_TESTS=OFF" # extra params from deadsix27 and from new cMakeLists.txt content
+    rm -f $mingw_w64_x86_64_prefix/lib/libsnappy.dll.a # unintall shared :|
   cd ..
 }
 
@@ -1051,14 +1050,16 @@ build_fftw() {
 }
 
 build_libsamplerate() {
-  do_git_checkout https://github.com/erikd/libsamplerate.git
-  cd libsamplerate_git
-    generic_configure
-    if [[ ! -f Makefile.bak ]]; then # Library only.
-      sed -i.bak "/^all-am/s/ \$(PROGRAMS)//;/install-data-am/s/ install-dist_htmlDATA//;/install-exec-am/s/ install-binPROGRAMS//" Makefile
-    fi
-    do_make_and_make_install
-  cd ..
+  # I think this didn't work with ubuntu 14.04 [too old automake or some odd] :|
+  #do_git_checkout https://github.com/erikd/libsamplerate.git
+  #cd libsamplerate_git
+  #  generic_configure
+  #  if [[ ! -f Makefile.bak ]]; then # Library only.
+  #    sed -i.bak "/^all-am/s/ \$(PROGRAMS)//;/install-data-am/s/ install-dist_htmlDATA//;/install-exec-am/s/ install-binPROGRAMS//" Makefile
+  #  fi
+  #  do_make_and_make_install
+  #cd ..
+  generic_download_and_make_and_install http://www.mega-nerd.com/SRC/libsamplerate-0.1.8.tar.gz # can use this, but uses speex bundled by default [any difference?]
 }
 
 build_librubberband() {
