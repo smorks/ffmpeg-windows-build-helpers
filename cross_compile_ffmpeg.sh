@@ -597,6 +597,20 @@ generic_configure "--bindir=$mingw_bin_path"
   cd ..
 }
 
+build_amd_amf_headers() {
+  do_git_checkout https://github.com/GPUOpen-LibrariesAndSDKs/AMF.git amf_headers_git # Use: https://github.com/DeadSix27/AMF or your own stripped fork if needed (original is like 120MB of data we don't need).
+  cd amf_headers_git
+    if [ ! -f "already_installed" ] ; then
+	  rm -rf "./Thirdparty"
+      if [ ! -d "$mingw_w64_x86_64_prefix/include/AMF" ]; then
+        mkdir -p "$mingw_w64_x86_64_prefix/include/AMF"
+      fi
+      cp -av "amf/public/include/." "$mingw_w64_x86_64_prefix/include/AMF" 
+	  touch "already_installed"
+	fi
+  cd ..
+}
+
 build_intel_quicksync_mfx() { # i.e. qsv
   do_git_checkout https://github.com/lu-zero/mfx_dispatch.git # lu-zero??
   cd mfx_dispatch_git
@@ -609,7 +623,7 @@ build_intel_quicksync_mfx() { # i.e. qsv
 }
 
 build_libzimg() {
-  do_git_checkout https://github.com/sekrit-twc/zimg.git zimg_git  dc68ac8557b3 # broke once...
+  do_git_checkout https://github.com/sekrit-twc/zimg.git zimg_git c1689d4b9abbf4becadcbd4f436e2f3b2bf1c2f1
   cd zimg_git
     if [[ ! -f Makefile.am.bak ]]; then # Library only.
       sed -i.bak "/dist_doc_DATA/,+19d" Makefile.am
@@ -975,6 +989,10 @@ build_libmodplug() {
   cd libmodplug_git
     sed -i.bak 's/__declspec(dllexport)//' "$mingw_w64_x86_64_prefix/include/libmodplug/modplug.h" #strip DLL import/export directives
     sed -i.bak 's/__declspec(dllimport)//' "$mingw_w64_x86_64_prefix/include/libmodplug/modplug.h"
+    if [[ ! -f "configure" ]]; then
+      autoreconf -fiv || exit 1
+      automake --add-missing || exit 1
+    fi
     generic_configure_make_install # or could use cmake I guess
   cd ..
 }
@@ -991,6 +1009,7 @@ build_libgme() {
 }
 
 build_libbluray() {
+  unset JDK_HOME # #268 was causing failure
   do_git_checkout https://git.videolan.org/git/libbluray.git
   cd libbluray_git
     sed -i.bak 's_git://git.videolan.org/libudfread.git_https://git.videolan.org/git/libudfread.git_' .gitmodules
@@ -1028,6 +1047,7 @@ build_libbs2b() {
     if [[ ! -f src/Makefile.in.bak ]]; then
       sed -i.bak "/^bin_PROGRAMS/s/=.*/=/" src/Makefile.in # Library only.
     fi
+    sed -i.bak "s/AC_FUNC_MALLOC//" configure.ac # #270
     generic_configure_make_install
   cd ..
 }
@@ -1154,7 +1174,7 @@ build_libmysofa() {
   do_git_checkout https://github.com/hoene/libmysofa.git
   cd libmysofa_git
     if [[ ! -f CMakeLists.txt.bak ]]; then # Library only.
-      sed -i.bak "/^install/,+1d" CMakeLists.txt
+      sed -e '/install(.*) *$/d' -e '/^install(/,/) *$/d'
     fi
     do_cmake_and_install "-DBUILD_SHARED_LIBS=0 -DBUILD_TESTS=0"
   cd ..
@@ -1207,7 +1227,7 @@ build_fribidi() {
   #  generic_configure "--disable-debug --disable-deprecated"
   #  do_make_and_make_install
   #cd ..
-  download_and_unpack_file https://www.fribidi.org/download/fribidi-0.19.7.tar.bz2
+  download_and_unpack_file http://pkgs.fedoraproject.org/repo/pkgs/fribidi/fribidi-0.19.7.tar.bz2/6c7e7cfdd39c908f7ac619351c1c5c23/fribidi-0.19.7.tar.bz2
   cd fribidi-0.19.7
     # make it export symbols right...
     # apply_patch https://raw.githubusercontent.com/rdp/ffmpeg-windows-build-helpers/master/patches/fribidi.diff # still needed?
@@ -1325,7 +1345,6 @@ build_libx265() {
       echo "still at hg $new_hg_version x265"
     fi
   fi # dont with prefer_stable = [y|n]
-  apply_patch file://$patch_dir/libx265_git_declspec.diff # Needed for building shared FFmpeg libraries.
 
   local cmake_params="-DENABLE_SHARED=0 -DENABLE_CLI=1" # build x265.exe
   if [ "$bits_target" = "32" ]; then
@@ -1682,7 +1701,7 @@ build_ffmpeg() {
   if [[ $high_bitdepth == "y" ]]; then
     output_dir+="_x26x_high_bitdepth"
   fi
-  if [[ $build_intel_qsv == "n" ]]; then
+  if [[ $build_amd_amf == "n" ]] || [[ $build_intel_qsv == "n" ]]; then
     output_dir+="_xp_compat"
   fi
   if [[ $enable_gpl == 'n' ]]; then
@@ -1728,6 +1747,12 @@ build_ffmpeg() {
     fi
     # other possibilities (you'd need to also uncomment the call to their build method):
     #   --enable-w32threads # [worse UDP than pthreads, so not using that]
+    if [[ $build_amd_amf = y ]]; then
+      config_options+=" --enable-amf" # This is actually autodetected but for consistency.. we might as well set it.
+    fi
+    if [[ $build_amd_amf = n ]]; then
+      config_options+=" --disable-amf" # Since its autodetected we have to disable it if we do not want it. #unless we define no autodetection but.. we don't.
+    fi
     if [[ $build_intel_qsv = y ]]; then
       config_options+=" --enable-libmfx" # [note, not windows xp friendly]
     fi
@@ -1849,6 +1874,9 @@ build_dependencies() {
   build_zlib # Zlib in FFmpeg is autodetected.
   build_iconv # Iconv in FFmpeg is autodetected. Uses dlfcn.
   build_sdl2 # Sdl2 in FFmpeg is autodetected. Needed to build FFPlay. Uses iconv and dlfcn.
+  if [[ $build_amd_amf = y ]]; then
+    build_amd_amf_headers
+  fi
   if [[ $build_intel_qsv = y ]]; then
     build_intel_quicksync_mfx
   fi
@@ -1973,6 +2001,11 @@ build_vlc=n
 build_lsw=n # To build x264 with L-Smash-Works.
 git_get_latest=y
 prefer_stable=y # Only for x264 and x265.
+# if [[ `uname` =~ "5.1" ]]; # Uncomment this if people report that AMF does not work on XP (I have no way to test this myself)
+#   build_amd_amf=n
+# else
+#   build_amd_amf=y
+# fi
 if [[ `uname` =~ "5.1" ]]; then # Disable when WinXP is detected, or you'll get "The procedure entry point _wfopen_s could not be located in the dynamic link library msvcrt.dll".
   build_intel_qsv=n
 else
@@ -2035,6 +2068,7 @@ while true; do
     --build-mp4box=* ) build_mp4box="${1#*=}"; shift ;;
     --build-ismindex=* ) build_ismindex="${1#*=}"; shift ;;
     --git-get-latest=* ) git_get_latest="${1#*=}"; shift ;;
+    --build-amd-amf=* ) build_amd_amf="${1#*=}"; shift ;;
     --build-intel-qsv=* ) build_intel_qsv="${1#*=}"; shift ;;
     --build-x264-with-libav=* ) build_x264_with_libav="${1#*=}"; shift ;;
     --build-mplayer=* ) build_mplayer="${1#*=}"; shift ;;
@@ -2047,7 +2081,7 @@ while true; do
     # this doesn't actually "build all", like doesn't build 10 high-bit LGPL ffmpeg, but it does exercise the "non default" type build options...
     -a         ) compiler_flavors="multi"; build_mplayer=y; build_libmxf=y; build_mp4box=y; build_vlc=y; build_lsw=y; high_bitdepth=y;
                  build_ffmpeg_static=y; build_ffmpeg_shared=y; build_lws=y;
-                 disable_nonfree=n; git_get_latest=y; sandbox_ok=y; build_intel_qsv=y; build_dvbtee=y; build_x264_with_libav=y; shift ;;
+                 disable_nonfree=n; git_get_latest=y; sandbox_ok=y; build_amd_amf=y; build_intel_qsv=y; build_dvbtee=y; build_x264_with_libav=y; shift ;;
     -d         ) gcc_cpu_count=$cpu_count; disable_nonfree="y"; sandbox_ok="y"; compiler_flavors="win32"; git_get_latest="n"; shift ;;
     --compiler-flavors=* ) compiler_flavors="${1#*=}"; shift ;;
     --build-ffmpeg-static=* ) build_ffmpeg_static="${1#*=}"; shift ;;
