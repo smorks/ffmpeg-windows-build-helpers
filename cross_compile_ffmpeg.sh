@@ -243,7 +243,7 @@ install_cross_compiler() {
       fi
     fi
 
-    rm -f build.log # left over stuff...
+    # rm -f build.log # left over stuff... # sometimes useful...
     reset_cflags
   cd ..
   echo "Done building (or already built) MinGW-w64 cross-compiler(s) successfully..."
@@ -308,7 +308,7 @@ do_git_checkout() {
     fi
   else
     echo "doing git checkout $desired_branch"
-    git checkout "$desired_branch" || exit 1
+    git checkout -f "$desired_branch" || exit 1
     git merge "$desired_branch" || exit 1 # get incoming changes to a branch
   fi
 
@@ -1173,9 +1173,6 @@ build_vidstab() {
 build_libmysofa() {
   do_git_checkout https://github.com/hoene/libmysofa.git
   cd libmysofa_git
-    if [[ ! -f CMakeLists.txt.bak ]]; then # Library only.
-      sed -e '/install(.*) *$/d' -e '/^install(/,/) *$/d'
-    fi
     do_cmake_and_install "-DBUILD_SHARED_LIBS=0 -DBUILD_TESTS=0"
   cd ..
 }
