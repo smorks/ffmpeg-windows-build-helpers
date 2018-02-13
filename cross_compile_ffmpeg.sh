@@ -623,7 +623,7 @@ build_intel_quicksync_mfx() { # i.e. qsv
 }
 
 build_libzimg() {
-  do_git_checkout https://github.com/sekrit-twc/zimg.git zimg_git c1689d4b9abbf4becadcbd4f436e2f3b2bf1c2f1
+  do_git_checkout https://github.com/sekrit-twc/zimg.git zimg_git 8e87f5a4b88e16ccafb2e7ade8ef45
   cd zimg_git
     if [[ ! -f Makefile.am.bak ]]; then # Library only.
       sed -i.bak "/dist_doc_DATA/,+19d" Makefile.am
@@ -737,8 +737,8 @@ build_libnettle() {
 }
 
 build_gnutls() {
-  download_and_unpack_file https://www.mirrorservice.org/sites/ftp.gnupg.org/gcrypt/gnutls/v3.5/gnutls-3.5.14.tar.xz
-  cd gnutls-3.5.14
+  download_and_unpack_file https://www.mirrorservice.org/sites/ftp.gnupg.org/gcrypt/gnutls/v3.5/gnutls-3.5.16.tar.xz
+  cd gnutls-3.5.16
     # --disable-cxx don't need the c++ version, in an effort to cut down on size... XXXX test size difference...
     # --enable-local-libopts to allow building with local autogen installed,
     # --disable-guile is so that if it finds guile installed (cygwin did/does) it won't try and link/build to it and fail...
@@ -998,8 +998,9 @@ build_libmodplug() {
 }
 
 build_libgme() {
-  do_git_checkout https://bitbucket.org/mpyne/game-music-emu.git
-  cd game-music-emu_git
+  # do_git_checkout https://bitbucket.org/mpyne/game-music-emu.git
+  download_and_unpack_file https://bitbucket.org/mpyne/game-music-emu/downloads/game-music-emu-0.6.2.tar.xz
+  cd game-music-emu-0.6.2
     if [[ ! -f CMakeLists.txt.bak ]]; then
       sed -i.bak "101,102s/.*/#&/" CMakeLists.txt # Library only.
       sed -i.bak "s/ __declspec.*//" gme/blargg_source.h # Needed for building shared FFmpeg libraries.
@@ -1216,19 +1217,15 @@ build_zvbi() {
 }
 
 build_fribidi() {
-  #do_git_checkout https://github.com/behdad/fribidi.git # needs wine?
-  #cd fribidi_git
-  #  if [[ ! -f Makefile.am.bak ]]; then # Library only and disable regeneration of 'configure' (which screws with the CPPFLAGS).
-  #    sed -i.bak "s/ bin.*//;40s/ \\\//;41d" Makefile.am
-  #  fi
-  #  generic_configure "--disable-debug --disable-deprecated"
-  #  do_make_and_make_install
-  #cd ..
-  download_and_unpack_file http://pkgs.fedoraproject.org/repo/pkgs/fribidi/fribidi-0.19.7.tar.bz2/6c7e7cfdd39c908f7ac619351c1c5c23/fribidi-0.19.7.tar.bz2
-  cd fribidi-0.19.7
-    # make it export symbols right...
-    # apply_patch https://raw.githubusercontent.com/rdp/ffmpeg-windows-build-helpers/master/patches/fribidi.diff # still needed?
-    generic_configure_make_install
+  do_git_checkout https://github.com/fribidi/fribidi.git
+  cd fribidi_git
+    cpu_count=1 # needed apparently...
+    if [[ ! -f Makefile.am.bak ]]; then # Library only and disable regeneration of 'configure' (which screws with the CPPFLAGS).
+      sed -i.bak "s/ bin.*//;40s/ \\\//;41d" Makefile.am
+    fi
+    generic_configure "--disable-debug --disable-deprecated"
+    do_make_and_make_install
+    cpu_count=$original_cpu_count
   cd ..
 }
 
@@ -1397,7 +1394,7 @@ build_libx264() {
   #if [[ $prefer_stable = "n" ]]; then
   #  do_git_checkout "http://git.videolan.org/git/x264.git" $checkout_dir "origin/master" # During 'configure': "Found no assembler. Minimum version is nasm-2.13" so disable for now...
   #else
-    do_git_checkout "http://git.videolan.org/git/x264.git" $checkout_dir "origin/stable"
+    do_git_checkout "http://git.videolan.org/git/x264.git" $checkout_dir  8c2974255b01728 # or "origin/stable" nasm again
   #fi
   cd $checkout_dir
     if [[ ! -f configure.bak ]]; then # Change CFLAGS.
@@ -1521,7 +1518,7 @@ build_libhdhomerun() {
 build_dvbtee_app() {
   build_libcurl # it "can use this" so why not
 #  build_libhdhomerun # broken but possible dependency apparently :|
-  do_git_checkout https://github.com/mkrufky/libdvbtee.git libdvbtee_git 2616b8c6f8fffc8055aa915d99c7429dc9219599 # until https://github.com/mkrufky/libdvbtee/issues/36
+  do_git_checkout https://github.com/mkrufky/libdvbtee.git libdvbtee_git
   cd libdvbtee_git
     # checkout its submodule, apparently required
     if [ ! -e libdvbpsi/bootstrap ]; then
