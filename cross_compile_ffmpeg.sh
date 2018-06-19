@@ -418,7 +418,7 @@ do_cmake() {
   fi
 }
 
-do_cmake_from_build_dir() {
+do_cmake_from_build_dir() { # XX combine with the above :)
   source_dir="$1"
   extra_args="$2"
   local touch_name=$(get_small_touchfile_name already_ran_cmake "$extra_args")
@@ -653,14 +653,14 @@ build_libleptonica() {
 
 build_libtiff() {
   build_libjpeg_turbo # auto uses it?
-  generic_download_and_make_and_install ftp://download.osgeo.org/libtiff/tiff-4.0.9.tar.gz
+  generic_download_and_make_and_install http://download.osgeo.org/libtiff/tiff-4.0.9.tar.gz
   sed -i.bak 's/-ltiff.*$/-ltiff -llzma -ljpeg -lz/' $PKG_CONFIG_PATH/libtiff-4.pc # static deps
 } 
 
 build_libtesseract() {
   build_libleptonica
   build_libtiff # no disable configure option for this in tesseract? odd...
-  do_git_checkout https://github.com/tesseract-ocr/tesseract.git tesseract_git
+  do_git_checkout https://github.com/tesseract-ocr/tesseract.git tesseract_git a2e72f258a3bd6811cae226a01802d # #315
   cd tesseract_git
     generic_configure_make_install
     sed -i.bak 's/-ltesseract.*$/-ltesseract -lstdc++ -lws2_32 -llept -ltiff -llzma -ljpeg -lz/' $PKG_CONFIG_PATH/tesseract.pc # why does it needs winsock? LOL plus all of libtiff's <sigh>
@@ -1150,9 +1150,9 @@ build_libmysofa() {
 }
 
 build_libcaca() {
-  do_git_checkout https://github.com/cacalabs/libcaca.git
+  do_git_checkout https://github.com/cacalabs/libcaca.git libcaca_git f1267fbd3cd3635a
   cd libcaca_git
-    apply_patch file://$patch_dir/libcaca_git_stdio-cruft.diff # Fix WinXP incompatibility.
+    apply_patch file://$patch_dir/libcaca_git_stdio-cruft.diff -p1 # Fix WinXP incompatibility.
     cd caca
       sed -i.bak "s/__declspec(dllexport)//g" *.h # get rid of the declspec lines otherwise the build will fail for undefined symbols
       sed -i.bak "s/__declspec(dllimport)//g" *.h
@@ -1238,19 +1238,17 @@ build_libvpx() {
 }
 
 build_libaom() {
-  do_git_checkout https://aomedia.googlesource.com/aom
-  rm -rf aom_build # force rebuild every time
-  mkdir -p aom_build
-  cd aom_build
+  do_git_checkout https://aomedia.googlesource.com/aom aom_git
   if [ "$bits_target" = "32" ]; then
-    local config_options="-DCMAKE_TOOLCHAIN_FILE=../aom/build/cmake/toolchains/x86-mingw-gcc.cmake -DAOM_TARGET_CPU=x86"
-    
+    local config_options="-DCMAKE_TOOLCHAIN_FILE=../build/cmake/toolchains/x86-mingw-gcc.cmake -DAOM_TARGET_CPU=x86"
   else
-    local config_options="-DCMAKE_TOOLCHAIN_FILE=../aom/build/cmake/toolchains/x86_64-mingw-gcc.cmake -DAOM_TARGET_CPU=x86_64"
+    local config_options="-DCMAKE_TOOLCHAIN_FILE=../build/cmake/toolchains/x86_64-mingw-gcc.cmake -DAOM_TARGET_CPU=x86_64"
   fi
-    do_cmake_from_build_dir ../aom $config_options
+  mkdir -p aom_git/aom_build
+  cd aom_git/aom_build
+    do_cmake_from_build_dir .. $config_options
     do_make_and_make_install
-  cd ..
+  cd ../..
 }
 
 build_libx265() {
