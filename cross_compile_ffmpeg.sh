@@ -81,6 +81,7 @@ check_missing_packages () {
     echo "for debian: same as ubuntu, but also add libtool-bin and ed"
     echo "for RHEL/CentOS: First ensure you have epel repos available, then run $ sudo yum install subversion texinfo mercurial libtool autogen gperf nasm patch unzip pax ed gcc-c++ bison flex yasm automake autoconf gcc zlib-devel cvs bzip2 cmake3 -y"
     echo "for fedora: if your distribution comes with a modern version of cmake then use the same as RHEL/CentOS but replace cmake3 with cmake."
+    echo "for linux native: libva-dev"
     exit 1
   fi
 
@@ -503,6 +504,7 @@ download_and_unpack_file() {
     #  -L means "allow redirection" or some odd :|
 
     curl -4 "$url" --retry 50 -O -L --fail || echo_and_exit "unable to download $url"
+    echo "unzipping $output_name ..."
     tar -xf "$output_name" || unzip "$output_name" || exit 1
     touch "$output_dir/unpacked.successfully" || exit 1
     rm "$output_name" || exit 1
@@ -651,14 +653,20 @@ build_nv_headers() {
   cd ..
 }
 
-build_intel_quicksync_mfx() { # i.e. qsv
-  do_git_checkout https://github.com/lu-zero/mfx_dispatch.git # lu-zero??
+build_intel_quicksync_mfx() { # i.e. qsv, disableable via command line switch...
+  do_git_checkout https://github.com/lu-zero/mfx_dispatch.git # lu-zero?? oh well seems somewhat supported...
   cd mfx_dispatch_git
     if [[ ! -f "configure" ]]; then
       autoreconf -fiv || exit 1
       automake --add-missing || exit 1
     fi
-    generic_configure_make_install
+    if [[ $compiler_flavors != "native" && $OSTYPE != darwin* ]]; then
+      unset PKG_CONFIG_LIBDIR # allow mfx_dispatch to use libva-dev or some odd...not sure OS X just disable it :)
+      generic_configure_make_install
+      export PKG_CONFIG_LIBDIR=
+    else
+      generic_configure_make_install
+    fi
   cd ..
 }
 
@@ -686,7 +694,7 @@ build_libtesseract() {
     if [[ $compiler_flavors != "native"  ]]; then
       sed -i.bak 's/-ltesseract.*$/-ltesseract -lstdc++ -lws2_32 -llept -ltiff -llzma -ljpeg -lz/' $PKG_CONFIG_PATH/tesseract.pc # why does it needs winsock? LOL plus all of libtiff's <sigh>
     else
-      sed -i.bak 's/-ltesseract.*$/-ltesseract -lstdc++ -llept -ltiff -llzma -ljpeg -lz/' $PKG_CONFIG_PATH/tesseract.pc # see above
+      sed -i.bak 's/-ltesseract.*$/-ltesseract -lstdc++ -llept -ltiff -llzma -ljpeg -lz -lgomp/' $PKG_CONFIG_PATH/tesseract.pc # see above, gomp for linux native
     fi
   cd ..
 }
@@ -790,7 +798,9 @@ build_gnutls() {
     if [[ $compiler_flavors != "native"  ]]; then
       sed -i.bak 's/-lgnutls.*/-lgnutls -lcrypt32/' "$PKG_CONFIG_PATH/gnutls.pc" 
     else
-      sed -i.bak 's/-lgnutls.*/-lgnutls -framework Security -framework Foundation/' "$PKG_CONFIG_PATH/gnutls.pc" 
+      if [[ $OSTYPE == darwin* ]]; then
+        sed -i.bak 's/-lgnutls.*/-lgnutls -framework Security -framework Foundation/' "$PKG_CONFIG_PATH/gnutls.pc" 
+      fi # else linux do nothing...
     fi
   cd ..
 }
@@ -1749,6 +1759,9 @@ build_ffmpeg() {
       config_options+=" --enable-nvenc --enable-nvdec" # don't work OS X 
     fi
 
+    config_options+=" --extra-libs=-lm" # libflite seemed to need this linux native...and have no .pc file huh?
+    config_options+=" --extra-libs=-lpthread" # for some reason various and sundry needed this linux native
+
     config_options+=" --extra-cflags=-DLIBTWOLAME_STATIC --extra-cflags=-DMODPLUG_STATIC --extra-cflags=-DCACA_STATIC" # if we ever do a git pull then it nukes changes, which overrides manual changes to configure, so just use these for now :|
     if [[ $build_amd_amf = n ]]; then
       config_options+=" --disable-amf" # Since its autodetected we have to disable it if we do not want it. #unless we define no autodetection but.. we don't.
@@ -2029,6 +2042,7 @@ build_lsw=n # To build x264 with L-Smash-Works.
 git_get_latest=y
 prefer_stable=y # Only for x264 and x265.
 build_intel_qsv=y # note: not windows xp friendly!
+build_amd_amf=y
 disable_nonfree=n # comment out to force user y/n selection
 original_cflags='-mtune=generic -O3' # high compatible by default, see #219, some other good options are listed below, or you could use -march=native to target your local box:
 # if you specify a march it needs to first so x264's configure will use it :| [ is that still the case ?]
