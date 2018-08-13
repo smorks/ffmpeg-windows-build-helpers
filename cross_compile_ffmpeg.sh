@@ -573,7 +573,8 @@ build_dlfcn() {
 }
 
 build_bzip2() {
-  download_and_unpack_file http://www.bzip.org/1.0.6/bzip2-1.0.6.tar.gz
+  #download_and_unpack_file http://www.bzip.org/1.0.6/bzip2-1.0.6.tar.gz
+  download_and_unpack_file https://fossies.org/linux/misc/bzip2-1.0.6.tar.gz
   cd bzip2-1.0.6
     apply_patch file://$patch_dir/bzip2-1.0.6_brokenstuff.diff
     if [[ ! -f $mingw_w64_x86_64_prefix/lib/libbz2.a ]]; then # Library only.
@@ -690,7 +691,9 @@ build_libtesseract() {
   build_libtiff # no disable configure option for this in tesseract? odd...
   do_git_checkout https://github.com/tesseract-ocr/tesseract.git tesseract_git a2e72f258a3bd6811cae226a01802d # #315
   cd tesseract_git
-    generic_configure_make_install
+    #generic_configure_make_install
+    generic_configure "--disable-openmp"
+    do_make_and_make_install
     if [[ $compiler_flavors != "native"  ]]; then
       sed -i.bak 's/-ltesseract.*$/-ltesseract -lstdc++ -lws2_32 -llept -ltiff -llzma -ljpeg -lz/' $PKG_CONFIG_PATH/tesseract.pc # why does it needs winsock? LOL plus all of libtiff's <sigh>
     else
@@ -793,7 +796,7 @@ build_gnutls() {
     # --disable-guile is so that if it finds guile installed (cygwin did/does) it won't try and link/build to it and fail...
     # libtasn1 is some dependency, appears provided is an option [see also build_libnettle]
     # pks #11 hopefully we don't need kit
-    generic_configure "--disable-doc --disable-tools --disable-cxx --disable-tests --disable-gtk-doc-html --disable-libdane --disable-nls --enable-local-libopts --disable-guile --with-included-libtasn1 --with-included-unistring --without-p11-kit"
+    generic_configure "--disable-doc --disable-tools --disable-cxx --disable-tests --disable-gtk-doc-html --disable-libdane --disable-nls --enable-local-libopts --disable-guile --with-included-libtasn1 --with-included-unistring --without-p11-kit --without-idn"
     do_make_and_make_install
     if [[ $compiler_flavors != "native"  ]]; then
       sed -i.bak 's/-lgnutls.*/-lgnutls -lcrypt32/' "$PKG_CONFIG_PATH/gnutls.pc" 
@@ -1273,7 +1276,7 @@ build_libvpx() {
       local config_options="--target=x86_64-win64-gcc"
     fi
     export CROSS="$cross_prefix"
-    do_configure "$config_options --prefix=$mingw_w64_x86_64_prefix --enable-static --disable-shared --disable-examples --disable-tools --disable-docs --disable-unit-tests --enable-vp9-highbitdepth"
+    do_configure "$config_options --prefix=$mingw_w64_x86_64_prefix --enable-static --disable-shared --disable-examples --disable-tools --disable-docs --disable-unit-tests --enable-vp9-highbitdepth --extra-cflags=-fno-asynchronous-unwind-tables"
     do_make_and_make_install
     unset CROSS
   cd ..
@@ -2129,6 +2132,8 @@ while true; do
   esac
 done
 
+compiler_flavors="mingw64"
+
 reset_cflags # also overrides any "native" CFLAGS, which we may need if there are some 'linux only' settings in there
 check_missing_packages # do this first since it's annoying to go through prompts then be rejected
 intro # remember to always run the intro, since it adjust pwd
@@ -2201,6 +2206,30 @@ if [[ $compiler_flavors == "multi" || $compiler_flavors == "win64" ]]; then
   make_prefix_options="CC=${cross_prefix}gcc AR=${cross_prefix}ar PREFIX=$mingw_w64_x86_64_prefix RANLIB=${cross_prefix}ranlib LD=${cross_prefix}ld STRIP=${cross_prefix}strip CXX=${cross_prefix}g++"
   mkdir -p win64
   cd win64
+    build_ffmpeg_dependencies
+    build_apps
+  cd ..
+fi
+
+if [[ $compiler_flavors == "mingw64" ]]; then
+  echo
+  echo "**************Starting 64-bit builds..." # make it have a bit easier to you can see when 32 bit is done
+  host_target='x86_64-w64-mingw32'
+  mingw_w64_x86_64_prefix="$cur_dir/cross_compilers/mingw-w64-x86_64/$host_target"
+  #mingw_bin_path="$cur_dir/cross_compilers/mingw-w64-x86_64/bin"
+  mingw_bin_path="$mingw_w64_x86_64_prefix/bin"
+  export PKG_CONFIG_LIBDIR="$mingw_w64_x86_64_prefix/lib/pkgconfig"
+  export PKG_CONFIG_PATH=$PKG_CONFIG_LIBDIR
+  export PATH="$mingw_bin_path:$original_path"
+  export LDFLAGS=-L$mingw_w64_x86_64_prefix/lib
+  export CPPFLAGS="-I$mingw_w64_x86_64_prefix/include"
+  original_cflags="$original_cflags -I$mingw_w64_x86_64_prefix/include"
+  reset_cflags
+  bits_target=64
+  cross_prefix="/usr/bin/x86_64-w64-mingw32-"
+  make_prefix_options="CC=${cross_prefix}gcc AR=${cross_prefix}ar PREFIX=$mingw_w64_x86_64_prefix RANLIB=${cross_prefix}ranlib LD=${cross_prefix}ld STRIP=${cross_prefix}strip CXX=${cross_prefix}g++"
+  mkdir -p mingw64
+  cd mingw64
     build_ffmpeg_dependencies
     build_apps
   cd ..
