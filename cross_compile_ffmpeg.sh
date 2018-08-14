@@ -573,7 +573,8 @@ build_dlfcn() {
 }
 
 build_bzip2() {
-  download_and_unpack_file http://www.bzip.org/1.0.6/bzip2-1.0.6.tar.gz
+  #download_and_unpack_file http://www.bzip.org/1.0.6/bzip2-1.0.6.tar.gz
+  download_and_unpack_file https://fossies.org/linux/misc/bzip2-1.0.6.tar.gz
   cd bzip2-1.0.6
     apply_patch file://$patch_dir/bzip2-1.0.6_brokenstuff.diff
     if [[ ! -f $mingw_w64_x86_64_prefix/lib/libbz2.a ]]; then # Library only.
@@ -793,7 +794,7 @@ build_gnutls() {
     # --disable-guile is so that if it finds guile installed (cygwin did/does) it won't try and link/build to it and fail...
     # libtasn1 is some dependency, appears provided is an option [see also build_libnettle]
     # pks #11 hopefully we don't need kit
-    generic_configure "--disable-doc --disable-tools --disable-cxx --disable-tests --disable-gtk-doc-html --disable-libdane --disable-nls --enable-local-libopts --disable-guile --with-included-libtasn1 --with-included-unistring --without-p11-kit"
+    generic_configure "--disable-doc --disable-tools --disable-cxx --disable-tests --disable-gtk-doc-html --disable-libdane --disable-nls --enable-local-libopts --disable-guile --with-included-libtasn1 --with-included-unistring --without-p11-kit --without-idn"
     do_make_and_make_install
     if [[ $compiler_flavors != "native"  ]]; then
       sed -i.bak 's/-lgnutls.*/-lgnutls -lcrypt32/' "$PKG_CONFIG_PATH/gnutls.pc" 
