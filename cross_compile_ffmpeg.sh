@@ -37,7 +37,7 @@ set_box_memory_size_bytes() {
 
 function sortable_version { echo "$@" | awk -F. '{ printf("%d%03d%03d%03d\n", $1,$2,$3,$4); }'; }
 
-ver_comp() { # params: required actual
+at_least_required_version() { # params: required actual
   local sortable_required=$(sortable_version $1)
   local sortable_actual=$(sortable_version $2)
   [[ "$sortable_actual" -ge "$sortable_required" ]]
@@ -50,7 +50,7 @@ check_missing_packages () {
     VENDOR="redhat"
   fi
   # zeranoe's build scripts use wget, though we don't here...
-  local check_packages=('curl' 'pkg-config' 'make' 'git' 'svn' 'gcc' 'autoconf' 'automake' 'yasm' 'cvs' 'flex' 'bison' 'makeinfo' 'g++' 'ed' 'hg' 'pax' 'unzip' 'patch' 'wget' 'xz' 'nasm' 'gperf' 'autogen' 'bzip2')  
+  local check_packages=('curl' 'pkg-config' 'make' 'git' 'svn' 'gcc' 'autoconf' 'automake' 'yasm' 'cvs' 'flex' 'bison' 'makeinfo' 'g++' 'ed' 'hg' 'pax' 'unzip' 'patch' 'wget' 'xz' 'nasm' 'gperf' 'autogen' 'bzip2')
   # autoconf-archive is just for leptonica FWIW
   # I'm not actually sure if VENDOR being set to centos is a thing or not. On all the centos boxes I can test on it's not been set at all.
   # that being said, if it where set I would imagine it would be set to centos... And this contition will satisfy the "Is not initially set"
@@ -75,13 +75,21 @@ check_missing_packages () {
     clear
     echo "Could not find the following execs (svn is actually package subversion, makeinfo is actually package texinfo, hg is actually package mercurial if you're missing them): ${missing_packages[*]}"
     echo 'Install the missing packages before running this script.'
-    echo "for ubuntu: $ sudo apt-get install subversion curl texinfo g++ bison flex cvs yasm automake libtool autoconf gcc cmake git make pkg-config zlib1g-dev mercurial unzip pax nasm gperf autogen bzip2 autoconf-archive -y"
-    echo "for gentoo (a non ubuntu distro): same as above, but no g++, no gcc, git is dev-vcs/git, zlib1g-dev is zlib, pkg-config is dev-util/pkgconfig, add ed..."
-    echo "for OS X (homebrew): brew install wget cvs hg yasm autogen automake autoconf cmake hg libtool xz pkg-config nasm bzip2 autoconf-archive"
-    echo "for debian: same as ubuntu, but also add libtool-bin and ed"
-    echo "for RHEL/CentOS: First ensure you have epel repos available, then run $ sudo yum install subversion texinfo mercurial libtool autogen gperf nasm patch unzip pax ed gcc-c++ bison flex yasm automake autoconf gcc zlib-devel cvs bzip2 cmake3 -y"
-    echo "for fedora: if your distribution comes with a modern version of cmake then use the same as RHEL/CentOS but replace cmake3 with cmake."
-    echo "for linux native: libva-dev"
+    determine_distro
+    if [[ $DISTRO == "Ubuntu" ]]; then
+      echo -n "for ubuntu: $ sudo apt-get install subversion curl texinfo g++ bison flex cvs yasm automake libtool autoconf gcc cmake git make pkg-config zlib1g-dev mercurial unzip pax nasm gperf autogen bzip2 autoconf-archive p7zip-full"
+      if at_least_required_version "18.04" "$(lsb_release -rs)"; then
+        echo -n " python3-distutils" # guess it's no longer built-in, lensfun requires it...
+      fi
+      echo " -y"
+    else
+      echo "for gentoo (a non ubuntu distro): same as above, but no g++, no gcc, git is dev-vcs/git, zlib1g-dev is zlib, pkg-config is dev-util/pkgconfig, add ed..."
+      echo "for OS X (homebrew): brew install wget cvs hg yasm autogen automake autoconf cmake libtool xz pkg-config nasm bzip2 autoconf-archive p7zip"
+      echo "for debian: same as ubuntu, but also add libtool-bin and ed"
+      echo "for RHEL/CentOS: First ensure you have epel repos available, then run $ sudo yum install subversion texinfo mercurial libtool autogen gperf nasm patch unzip pax ed gcc-c++ bison flex yasm automake autoconf gcc zlib-devel cvs bzip2 cmake3 -y"
+      echo "for fedora: if your distribution comes with a modern version of cmake then use the same as RHEL/CentOS but replace cmake3 with cmake."
+      echo "for linux native: libva-dev"
+    fi
     exit 1
   fi
 
@@ -94,7 +102,7 @@ check_missing_packages () {
     # installed cmake at a higher version wouldn't be detected.
     if hash "${cmake_binary}"  &> /dev/null; then
       cmake_version="$( "${cmake_binary}" --version | sed -e "s#${cmake_binary}##g" | head -n 1 | tr -cd '[0-9.\n]' )"
-      if ver_comp "${REQUIRED_CMAKE_VERSION}" "${cmake_version}"; then
+      if at_least_required_version "${REQUIRED_CMAKE_VERSION}" "${cmake_version}"; then
         export cmake_command="${cmake_binary}"
         break
       else
@@ -122,10 +130,29 @@ check_missing_packages () {
   export REQUIRED_YASM_VERSION="1.2.0"
   yasm_binary=yasm
   yasm_version="$( "${yasm_binary}" --version |sed -e "s#${yasm_binary}##g" | head -n 1 | tr -dc '[0-9.\n]' )"
-  if ! ver_comp "${REQUIRED_YASM_VERSION}" "${yasm_version}"; then
+  if ! at_least_required_version "${REQUIRED_YASM_VERSION}" "${yasm_version}"; then
     echo "your yasm version is too old $yasm_version wanted ${REQUIRED_YASM_VERSION}"
     exit 1
   fi
+}
+
+determine_distro() { 
+
+# Determine OS platform from https://askubuntu.com/a/459425/20972
+UNAME=$(uname | tr "[:upper:]" "[:lower:]")
+# If Linux, try to determine specific distribution
+if [ "$UNAME" == "linux" ]; then
+    # If available, use LSB to identify distribution
+    if [ -f /etc/lsb-release -o -d /etc/lsb-release.d ]; then
+        export DISTRO=$(lsb_release -i | cut -d: -f2 | sed s/'^\t'//)
+    # Otherwise, use release info file
+    else
+        export DISTRO=$(ls -d /etc/[A-Za-z]*[_-][rv]e[lr]* | grep -v "lsb" | cut -d'/' -f3 | cut -d'-' -f1 | cut -d'_' -f1)
+    fi
+fi
+# For everything else (or if above failed), just use generic identifier
+[ "$DISTRO" == "" ] && export DISTRO=$UNAME
+unset UNAME
 }
 
 
@@ -159,6 +186,7 @@ The resultant binary may not be distributable, but can be useful for in-house us
       non_free="$user_input" # save it away
     fi
   fi
+  echo "sit back, this may take awhile..."
 }
 
 pick_compiler_flavors() {
@@ -229,7 +257,7 @@ install_cross_compiler() {
 
     # --disable-shared allows c++ to be distributed at all...which seemed necessary for some random dependency which happens to use/require c++...
     local zeranoe_script_name=mingw-w64-build-r22.local
-    local zeranoe_script_options="--gcc-ver=7.1.0 --default-configure --cpu-count=$gcc_cpu_count --pthreads-w32-ver=2-9-1 --disable-shared --clean-build --verbose --allow-overwrite" # allow-overwrite to avoid some crufty prompts if I do rebuilds [or maybe should just nuke everything...]
+    local zeranoe_script_options="--gcc-ver=8.2.0 --default-configure --cpu-count=$gcc_cpu_count --pthreads-w32-ver=2-9-1 --disable-shared --clean-build --verbose --allow-overwrite" # allow-overwrite to avoid some crufty prompts if I do rebuilds [or maybe should just nuke everything...]
     if [[ ($compiler_flavors == "win32" || $compiler_flavors == "multi") && ! -f ../$win32_gcc ]]; then
       echo "Building win32 cross compiler..."
       download_gcc_build_script $zeranoe_script_name
@@ -361,7 +389,7 @@ do_configure() {
       autoreconf -fiv # a handful of them require this to create ./configure :|
     fi
     rm -f already_* # reset
-    "$configure_name" $configure_options || exit 1 # not nice on purpose, so that if some other script is running as nice, this one will get priority :)
+    nice -n 5 "$configure_name" $configure_options || exit 1 # less nice (since single thread, and what if you're running another ffmpeg nice build elsewhere?)
     touch -- "$touch_name"
     echo "doing preventative make clean"
     nice make clean -j $cpu_count # sometimes useful when files change, etc.
@@ -377,7 +405,7 @@ do_make() {
 
   if [ ! -f $touch_name ]; then
     echo
-    echo "making $cur_dir2 as $ PATH=$mingw_bin_path:\$PATH make $extra_make_options"
+    echo "Making $cur_dir2 as $ PATH=$mingw_bin_path:\$PATH make $extra_make_options"
     echo
     if [ ! -f configure ]; then
       nice make clean -j $cpu_count # just in case helpful if old junk left around and this is a 're make' and wasn't cleaned at reconfigure time
@@ -385,7 +413,7 @@ do_make() {
     nice make $extra_make_options || exit 1
     touch $touch_name || exit 1 # only touch if the build was OK
   else
-    echo "already made $(basename "$cur_dir2") ..."
+    echo "Already made $(basename "$cur_dir2") ..."
   fi
 }
 
@@ -420,11 +448,11 @@ do_cmake() {
     local cur_dir2=$(pwd)
     echo doing cmake in $cur_dir2 with PATH=$mingw_bin_path:\$PATH with extra_args=$extra_args like this:
     if [[ $compiler_flavors != "native" ]]; then
-      echo ${cmake_command} -G"Unix Makefiles" . -DENABLE_STATIC_RUNTIME=1 -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_RANLIB=${cross_prefix}ranlib -DCMAKE_C_COMPILER=${cross_prefix}gcc -DCMAKE_CXX_COMPILER=${cross_prefix}g++ -DCMAKE_RC_COMPILER=${cross_prefix}windres -DCMAKE_INSTALL_PREFIX=$mingw_w64_x86_64_prefix $extra_args
-      ${cmake_command} -G"Unix Makefiles" . -DENABLE_STATIC_RUNTIME=1 -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_RANLIB=${cross_prefix}ranlib -DCMAKE_C_COMPILER=${cross_prefix}gcc -DCMAKE_CXX_COMPILER=${cross_prefix}g++ -DCMAKE_RC_COMPILER=${cross_prefix}windres -DCMAKE_INSTALL_PREFIX=$mingw_w64_x86_64_prefix $extra_args || exit 1
+      echo ${cmake_command} -G\"Unix Makefiles\" . -DENABLE_STATIC_RUNTIME=1 -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_FIND_ROOT_PATH=$mingw_w64_x86_64_prefix -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY -DCMAKE_RANLIB=${cross_prefix}ranlib -DCMAKE_C_COMPILER=${cross_prefix}gcc -DCMAKE_CXX_COMPILER=${cross_prefix}g++ -DCMAKE_RC_COMPILER=${cross_prefix}windres -DCMAKE_INSTALL_PREFIX=$mingw_w64_x86_64_prefix $extra_args
+      ${cmake_command} -G"Unix Makefiles" . -DENABLE_STATIC_RUNTIME=1 -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_FIND_ROOT_PATH=$mingw_w64_x86_64_prefix -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY -DCMAKE_RANLIB=${cross_prefix}ranlib -DCMAKE_C_COMPILER=${cross_prefix}gcc -DCMAKE_CXX_COMPILER=${cross_prefix}g++ -DCMAKE_RC_COMPILER=${cross_prefix}windres -DCMAKE_INSTALL_PREFIX=$mingw_w64_x86_64_prefix $extra_args || exit 1
     else
       echo "doing cmake" ${cmake_command} -G"Unix Makefiles" . -DENABLE_STATIC_RUNTIME=1 -DCMAKE_INSTALL_PREFIX=$mingw_w64_x86_64_prefix $extra_args || exit 1
-      ${cmake_command} -G"Unix Makefiles" . -DENABLE_STATIC_RUNTIME=1 -DCMAKE_INSTALL_PREFIX=$mingw_w64_x86_64_prefix $extra_args || exit 1
+      nice -n 5 ${cmake_command} -G"Unix Makefiles" . -DENABLE_STATIC_RUNTIME=1 -DCMAKE_INSTALL_PREFIX=$mingw_w64_x86_64_prefix $extra_args || exit 1
     fi
     touch $touch_name || exit 1
   fi
@@ -440,10 +468,10 @@ do_cmake_from_build_dir() { # XX combine with the above :)
     local cur_dir2=$(pwd)
     echo doing cmake in $cur_dir2 with PATH=$mingw_bin_path:\$PATH with extra_args=$extra_args like this:
     if [[ $compiler_flavors != "native" ]]; then
-      echo ${cmake_command} -G"Unix Makefiles" $source_dir -DENABLE_STATIC_RUNTIME=1 -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_RANLIB=${cross_prefix}ranlib -DCMAKE_C_COMPILER=${cross_prefix}gcc -DCMAKE_CXX_COMPILER=${cross_prefix}g++ -DCMAKE_RC_COMPILER=${cross_prefix}windres -DCMAKE_INSTALL_PREFIX=$mingw_w64_x86_64_prefix $extra_args
-      ${cmake_command} -G"Unix Makefiles" $source_dir -DENABLE_STATIC_RUNTIME=1 -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_RANLIB=${cross_prefix}ranlib -DCMAKE_C_COMPILER=${cross_prefix}gcc -DCMAKE_CXX_COMPILER=${cross_prefix}g++ -DCMAKE_RC_COMPILER=${cross_prefix}windres -DCMAKE_INSTALL_PREFIX=$mingw_w64_x86_64_prefix $extra_args || exit 1
+      echo ${cmake_command} -G\"Unix Makefiles\" $source_dir -DENABLE_STATIC_RUNTIME=1 -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_FIND_ROOT_PATH=$mingw_w64_x86_64_prefix -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY -DCMAKE_RANLIB=${cross_prefix}ranlib -DCMAKE_C_COMPILER=${cross_prefix}gcc -DCMAKE_CXX_COMPILER=${cross_prefix}g++ -DCMAKE_RC_COMPILER=${cross_prefix}windres -DCMAKE_INSTALL_PREFIX=$mingw_w64_x86_64_prefix $extra_args
+      ${cmake_command} -G"Unix Makefiles" $source_dir -DENABLE_STATIC_RUNTIME=1 -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_FIND_ROOT_PATH=$mingw_w64_x86_64_prefix -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY -DCMAKE_RANLIB=${cross_prefix}ranlib -DCMAKE_C_COMPILER=${cross_prefix}gcc -DCMAKE_CXX_COMPILER=${cross_prefix}g++ -DCMAKE_RC_COMPILER=${cross_prefix}windres -DCMAKE_INSTALL_PREFIX=$mingw_w64_x86_64_prefix $extra_args || exit 1
     else
-      echo ${cmake_command} -G"Unix Makefiles" $source_dir -DENABLE_STATIC_RUNTIME=1 -DCMAKE_INSTALL_PREFIX=$mingw_w64_x86_64_prefix $extra_args || exit 1
+      echo ${cmake_command} -G\"Unix Makefiles\" $source_dir -DENABLE_STATIC_RUNTIME=1 -DCMAKE_INSTALL_PREFIX=$mingw_w64_x86_64_prefix $extra_args || exit 1
       ${cmake_command} -G"Unix Makefiles" $source_dir -DENABLE_STATIC_RUNTIME=1 -DCMAKE_INSTALL_PREFIX=$mingw_w64_x86_64_prefix $extra_args || exit 1
     fi
     touch $touch_name || exit 1
@@ -472,8 +500,8 @@ apply_patch() {
     patch $patch_type < "$patch_name" || exit 1
     touch $patch_done_name || exit 1
     rm -f already_ran* # if it's a new patch, reset everything too, in case it's really really really new
-  else
-    echo "patch $patch_name already applied"
+  #else
+  #  echo "patch $patch_name already applied" # too chatty
   fi
 }
 
@@ -573,7 +601,6 @@ build_dlfcn() {
 }
 
 build_bzip2() {
-  #download_and_unpack_file http://www.bzip.org/1.0.6/bzip2-1.0.6.tar.gz
   download_and_unpack_file https://fossies.org/linux/misc/bzip2-1.0.6.tar.gz
   cd bzip2-1.0.6
     apply_patch file://$patch_dir/bzip2-1.0.6_brokenstuff.diff
@@ -634,16 +661,19 @@ generic_configure "--bindir=$mingw_bin_path"
 }
 
 build_amd_amf_headers() {
-  do_git_checkout https://github.com/GPUOpen-LibrariesAndSDKs/AMF.git amf_headers_git # Use: https://github.com/DeadSix27/AMF or your own stripped fork if needed (original is like 120MB of data we don't need).
+  # was https://github.com/GPUOpen-LibrariesAndSDKs/AMF.git too big
+  # or https://github.com/DeadSix27/AMF smaller
+  # just right...
+  do_git_checkout https://github.com/rdp/amf_headers.git amf_headers_git
   cd amf_headers_git
-    if [ ! -f "already_installed" ] ; then
-	  rm -rf "./Thirdparty"
+    if [ ! -f "already_installed" ]; then
+      #rm -rf "./Thirdparty" # ?? plus too chatty...
       if [ ! -d "$mingw_w64_x86_64_prefix/include/AMF" ]; then
         mkdir -p "$mingw_w64_x86_64_prefix/include/AMF"
       fi
       cp -av "amf/public/include/." "$mingw_w64_x86_64_prefix/include/AMF" 
-	  touch "already_installed"
-	fi
+      touch "already_installed"
+    fi
   cd ..
 }
 
@@ -661,8 +691,8 @@ build_intel_quicksync_mfx() { # i.e. qsv, disableable via command line switch...
       autoreconf -fiv || exit 1
       automake --add-missing || exit 1
     fi
-    if [[ $compiler_flavors != "native" && $OSTYPE != darwin* ]]; then
-      unset PKG_CONFIG_LIBDIR # allow mfx_dispatch to use libva-dev or some odd...not sure OS X just disable it :)
+    if [[ $compiler_flavors == "native" && $OSTYPE != darwin* ]]; then
+      unset PKG_CONFIG_LIBDIR # allow mfx_dispatch to use libva-dev or some odd...not sure for OS X so just disable it :)
       generic_configure_make_install
       export PKG_CONFIG_LIBDIR=
     else
@@ -685,6 +715,41 @@ build_libtiff() {
   generic_download_and_make_and_install http://download.osgeo.org/libtiff/tiff-4.0.9.tar.gz
   sed -i.bak 's/-ltiff.*$/-ltiff -llzma -ljpeg -lz/' $PKG_CONFIG_PATH/libtiff-4.pc # static deps
 } 
+
+build_libtensorflow() {
+  do_git_checkout_and_make_install https://github.com/tensorflow/tensorflow.git
+}
+
+build_glib() {
+  export CPPFLAGS='-DLIBXML_STATIC' # gettext build...
+  generic_download_and_make_and_install  https://ftp.gnu.org/pub/gnu/gettext/gettext-0.19.8.1.tar.xz
+  unset CPPFLAGS
+  generic_download_and_make_and_install  http://sourceware.org/pub/libffi/libffi-3.2.1.tar.gz # also dep
+  download_and_unpack_file https://ftp.gnome.org/pub/gnome/sources/glib/2.56/glib-2.56.3.tar.xz # there's a 2.58 but guess I'd need to use meson for that, too complicated...also didn't yet contain the DllMain patch I believe, so no huge win...
+  cd glib-2.56.3
+    export CPPFLAGS='-liconv -pthread' # I think gettext wanted this but has no .pc file??
+    if [[ $compiler_flavors != "native" ]]; then # seemingly unneeded for OS X
+      apply_patch file://$patch_dir/glib_msg_fmt.patch # needed for configure
+      apply_patch  file://$patch_dir/glib-prefer-constructors-over-DllMain.patch # needed for static. weird.
+    fi
+    generic_configure "--with-pcre=internal" # too lazy for pcre :) XXX
+    unset CPPFLAGS
+    do_make_and_make_install
+  cd ..
+}
+
+build_lensfun() {
+  build_glib
+  download_and_unpack_file https://sourceforge.net/projects/lensfun/files/0.3.95/lensfun-0.3.95.tar.gz
+  cd lensfun-0.3.95
+    export CMAKE_STATIC_LINKER_FLAGS='-lws2_32 -pthread'
+    do_cmake "-DBUILD_STATIC=on -DCMAKE_INSTALL_DATAROOTDIR=$mingw_w64_x86_64_prefix"
+    do_make
+    do_make_install
+    sed -i.bak 's/-llensfun/-llensfun -lstdc++/' "$PKG_CONFIG_PATH/lensfun.pc"
+    unset CMAKE_STATIC_LINKER_FLAGS
+  cd ..
+}
 
 build_libtesseract() {
   build_libleptonica
@@ -778,6 +843,30 @@ build_gmp() {
   cd ..
 }
 
+build_librtmfp() {
+  # needs some version of openssl...
+  # build_openssl-1.0.2 # fails OS X 
+  build_openssl-1.1.1
+  do_git_checkout https://github.com/MonaSolutions/librtmfp.git
+  cd librtmfp_git/include/Base
+    do_git_checkout https://github.com/meganz/mingw-std-threads.git mingw-std-threads # our g++ apparently doesn't have std::mutex baked in...weird...this replaces it...
+  cd ../../..
+  cd librtmfp_git
+    if [[ $compiler_flavors != "native" ]]; then
+      apply_patch file://$patch_dir/rtmfp.static.cross.patch -p1 # works e48efb4f
+    else
+      apply_patch file://$patch_dir/rtfmp.static.make.patch -p1
+    fi
+    do_make "$make_prefix_options GPP=${cross_prefix}g++"
+    do_make_install "prefix=$mingw_w64_x86_64_prefix PKGCONFIGPATH=$PKG_CONFIG_PATH"
+    if [[ $compiler_flavors == "native" ]]; then
+      sed -i.bak 's/-lrtmfp.*/-lrtmfp -lstdc++/' "$PKG_CONFIG_PATH/librtmfp.pc"
+    else
+      sed -i.bak 's/-lrtmfp.*/-lrtmfp -lstdc++ -lWs2_32 -liphlpapi/' "$PKG_CONFIG_PATH/librtmfp.pc"
+    fi
+  cd ..
+}
+
 build_libnettle() {
   download_and_unpack_file https://ftp.gnu.org/gnu/nettle/nettle-3.4.tar.gz
   cd nettle-3.4
@@ -807,8 +896,8 @@ build_gnutls() {
 }
 
 build_openssl-1.0.2() {
-  download_and_unpack_file https://www.openssl.org/source/openssl-1.0.2l.tar.gz
-  cd openssl-1.0.2l
+  download_and_unpack_file https://www.openssl.org/source/openssl-1.0.2p.tar.gz
+  cd openssl-1.0.2p
     apply_patch file://$patch_dir/openssl-1.0.2l_lib-only.diff
     export CC="${cross_prefix}gcc"
     export AR="${cross_prefix}ar"
@@ -851,9 +940,9 @@ build_openssl-1.0.2() {
   cd ..
 }
 
-build_openssl-1.1.0() {
-  download_and_unpack_file https://www.openssl.org/source/openssl-1.1.0f.tar.gz
-  cd openssl-1.1.0f
+build_openssl-1.1.1() {
+  download_and_unpack_file https://www.openssl.org/source/openssl-1.1.1.tar.gz
+  cd openssl-1.1.1
     export CC="${cross_prefix}gcc"
     export AR="${cross_prefix}ar"
     export RANLIB="${cross_prefix}ranlib"
@@ -866,7 +955,14 @@ build_openssl-1.1.0() {
     if [[ `uname` =~ "5.1" ]] || [[ `uname` =~ "6.0" ]]; then
       config_options+="no-async " # "Note: on older OSes, like CentOS 5, BSD 5, and Windows XP or Vista, you will need to configure with no-async when building OpenSSL 1.1.0 and above. The configuration system does not detect lack of the Posix feature on the platforms." (https://wiki.openssl.org/index.php/Compilation_and_Installation)
     fi
-    if [ "$bits_target" = "32" ]; then
+    if [[ $compiler_flavors == "native" ]]; then
+      if [[ $OSTYPE == darwin* ]]; then
+        config_options+="darwin64-x86_64-cc "
+      else
+        linux-generic64 # uh guess...
+      fi
+      local arch=native
+    elif [ "$bits_target" = "32" ]; then
       config_options+="mingw" # Build shared libraries ('libcrypto-1_1.dll' and 'libssl-1_1.dll') if "dllonly" is specified.
       local arch=x86
     else
@@ -1128,12 +1224,13 @@ build_fftw() {
 
 build_libsamplerate() {
   # I think this didn't work with ubuntu 14.04 [too old automake or some odd] :|
-  #do_git_checkout https://github.com/erikd/libsamplerate.git
-  #cd libsamplerate_git
-  #  generic_configure
-  #  do_make_and_make_install
-  #cd ..
-  generic_download_and_make_and_install http://www.mega-nerd.com/SRC/libsamplerate-0.1.8.tar.gz # rubberband can use this, but uses speex bundled by default [any difference?] 1.9 failed
+  do_git_checkout https://github.com/erikd/libsamplerate.git
+  cd libsamplerate_git
+    generic_configure
+    do_make_and_make_install
+  cd ..
+  # but OS X can't use 0.1.9 :|
+  # rubberband can use this, but uses speex bundled by default [any difference? who knows!]
 }
 
 build_librubberband() {
@@ -1149,6 +1246,7 @@ build_librubberband() {
 build_frei0r() {
   do_git_checkout https://github.com/dyne/frei0r.git
   cd frei0r_git
+    sed -i.bak 's/-arch i386//' CMakeLists.txt # OS X https://github.com/dyne/frei0r/issues/64
     do_cmake_and_install
 
     mkdir -p $cur_dir/redist # Strip and pack shared libraries.
@@ -1202,13 +1300,10 @@ build_libcaca() {
 }
 
 build_libdecklink() {
-  if [[ ! -f $mingw_w64_x86_64_prefix/include/DeckLinkAPIVersion.h ]]; then
-    # smaller files don't worry about partials for now, plus we only care about the last file anyway here...
-    curl -4 file://$patch_dir/DeckLinkAPI.h --fail > $mingw_w64_x86_64_prefix/include/DeckLinkAPI.h || exit 1
-    curl -4 file://$patch_dir/DeckLinkAPI_i.c --fail > $mingw_w64_x86_64_prefix/include/DeckLinkAPI_i.c.tmp || exit 1
-    mv $mingw_w64_x86_64_prefix/include/DeckLinkAPI_i.c.tmp $mingw_w64_x86_64_prefix/include/DeckLinkAPI_i.c
-    curl -4 file://$patch_dir/DeckLinkAPIVersion.h --fail > $mingw_w64_x86_64_prefix/include/DeckLinkAPIVersion.h || exit 1
-  fi
+  do_git_checkout https://notabug.org/RiCON/decklink-headers.git
+  cd decklink-headers_git
+    do_make_install PREFIX=$mingw_w64_x86_64_prefix
+  cd ..
 }
 
 build_zvbi() {
@@ -1274,14 +1369,14 @@ build_libvpx() {
       local config_options="--target=x86_64-win64-gcc"
     fi
     export CROSS="$cross_prefix"
-    do_configure "$config_options --prefix=$mingw_w64_x86_64_prefix --enable-static --disable-shared --disable-examples --disable-tools --disable-docs --disable-unit-tests --enable-vp9-highbitdepth"
+    do_configure "$config_options --prefix=$mingw_w64_x86_64_prefix --enable-static --disable-shared --disable-examples --disable-tools --disable-docs --disable-unit-tests --enable-vp9-highbitdepth --extra-cflags=-fno-asynchronous-unwind-tables" # fno for Error: invalid register for .seh_savexmm
     do_make_and_make_install
     unset CROSS
   cd ..
 }
 
 build_libaom() {
-  do_git_checkout https://aomedia.googlesource.com/aom aom_git
+  do_git_checkout https://aomedia.googlesource.com/aom aom_git df7131064bf # avoid collision with vp9 :|
   if [[ $compiler_flavors == "native" ]]; then 
     local config_options=""
   elif [ "$bits_target" = "32" ]; then
@@ -1755,7 +1850,7 @@ build_ffmpeg() {
       init_options+=" --disable-schannel"
       # Fix WinXP incompatibility by disabling Microsoft's Secure Channel, because Windows XP doesn't support TLS 1.1 and 1.2, but with GnuTLS or OpenSSL it does.  XP compat!
     fi
-    config_options="$init_options --enable-libcaca --enable-gray --enable-libtesseract --enable-fontconfig --enable-gmp --enable-gnutls --enable-libass --enable-libbluray --enable-libbs2b --enable-libflite --enable-libfreetype --enable-libfribidi --enable-libgme --enable-libgsm --enable-libilbc --enable-libmodplug --enable-libmp3lame --enable-libopencore-amrnb --enable-libopencore-amrwb --enable-libopus --enable-libsnappy --enable-libsoxr --enable-libspeex --enable-libtheora --enable-libtwolame --enable-libvo-amrwbenc --enable-libvorbis --enable-libvpx --enable-libwebp --enable-libzimg --enable-libzvbi --enable-libmysofa --enable-libaom --enable-libopenjpeg  --enable-libopenh264"
+    config_options="$init_options --enable-libcaca --enable-gray --enable-libtesseract --enable-fontconfig --enable-gmp --enable-gnutls --enable-libass --enable-libbluray --enable-libbs2b --enable-libflite --enable-libfreetype --enable-libfribidi --enable-libgme --enable-libgsm --enable-libilbc --enable-libmodplug --enable-libmp3lame --enable-libopencore-amrnb --enable-libopencore-amrwb --enable-libopus --enable-libsnappy --enable-libsoxr --enable-libspeex --enable-libtheora --enable-libtwolame --enable-libvo-amrwbenc --enable-libvorbis --enable-libvpx --enable-libwebp --enable-libzimg --enable-libzvbi --enable-libmysofa --enable-libaom --enable-libopenjpeg  --enable-libopenh264 --enable-liblensfun"
     if [[ $compiler_flavors != "native" ]]; then
       config_options+=" --enable-nvenc --enable-nvdec" # don't work OS X 
     fi
@@ -1772,6 +1867,8 @@ build_ffmpeg() {
 
     if [[ $build_intel_qsv = y ]]; then
       config_options+=" --enable-libmfx"
+    else
+      config_options+=" --disable-libmfx"
     fi
     if [[ $enable_gpl == 'y' ]]; then
       config_options+=" --enable-gpl --enable-avisynth --enable-frei0r --enable-filter=frei0r --enable-librubberband --enable-libvidstab --enable-libx264 --enable-libx265 --enable-libxvid"
@@ -1924,11 +2021,12 @@ build_ffmpeg_dependencies() {
   build_libxml2 # Uses zlib, liblzma, iconv and dlfcn.
   build_fontconfig # Needs freetype and libxml >= 2.6. Uses iconv and dlfcn.
   build_gmp # For rtmp support configure FFmpeg with '--enable-gmp'. Uses dlfcn.
+  #build_librtmfp
   build_libnettle # Needs gmp >= 3.0. Uses dlfcn.
   build_gnutls # Needs nettle >= 3.1, hogweed (nettle) >= 3.1. Uses zlib and dlfcn.
   #if [[ "$non_free" = "y" ]]; then
   #  build_openssl-1.0.2 # Nonfree alternative to GnuTLS. 'build_openssl-1.0.2 "dllonly"' to build shared libraries only.
-  #  build_openssl-1.1.0 # Nonfree alternative to GnuTLS. Can't be used with LibRTMP. 'build_openssl-1.1.0 "dllonly"' to build shared libraries only.
+  #  build_openssl-1.1.1 # Nonfree alternative to GnuTLS. Can't be used with LibRTMP. 'build_openssl-1.1.1 "dllonly"' to build shared libraries only.
   #fi
   build_libogg # Uses dlfcn.
   build_libvorbis # Needs libogg >= 1.0. Uses dlfcn.
@@ -1965,6 +2063,8 @@ build_ffmpeg_dependencies() {
 
   build_libxvid # FFmpeg now has native support, but libxvid still provides a better image.
   build_libtesseract
+  build_lensfun  # requires png, zlib, iconv
+  # build_libtensorflow # broken
   build_libvpx
   build_libx265
   build_libopenh264
@@ -2117,7 +2217,13 @@ while true; do
                  disable_nonfree=n; git_get_latest=y; sandbox_ok=y; build_amd_amf=y; build_intel_qsv=y; 
                  build_dvbtee=y; build_x264_with_libav=y; shift ;;
     -d         ) gcc_cpu_count=$cpu_count; disable_nonfree="y"; sandbox_ok="y"; compiler_flavors="win32"; git_get_latest="n"; shift ;;
-    --compiler-flavors=* ) compiler_flavors="${1#*=}"; shift ;;
+    --compiler-flavors=* ) 
+         compiler_flavors="${1#*=}"; 
+         if [[ $compiler_flavors == "native" && $OSTYPE == darwin* ]]; then
+           build_intel_qsv=n
+           echo "disabling qsv since os x"
+         fi
+         shift ;;
     --build-ffmpeg-static=* ) build_ffmpeg_static="${1#*=}"; shift ;;
     --build-ffmpeg-shared=* ) build_ffmpeg_shared="${1#*=}"; shift ;;
     --prefer-stable=* ) prefer_stable="${1#*=}"; shift ;;
