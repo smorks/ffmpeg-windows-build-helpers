@@ -1804,7 +1804,7 @@ build_libMXF() {
 
 build_ffmpeg() {
   local extra_postpend_configure_options=$2
-  local ffver="4.0.2"
+  local ffver="4.0.3"
   local output_dir="ffmpeg-$ffver"
   local ffurl="http://ffmpeg.org/releases/ffmpeg-${ffver}.tar.bz2"
 
