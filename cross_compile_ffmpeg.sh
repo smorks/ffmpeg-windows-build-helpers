@@ -379,6 +379,8 @@ do_configure() {
     # make uninstall # does weird things when run under ffmpeg src so disabled for now...
 
     echo "configuring $english_name ($PWD) as $ PKG_CONFIG_PATH=$PKG_CONFIG_PATH PATH=$mingw_bin_path:\$PATH $configure_name $configure_options" # say it now in case bootstrap fails etc.
+    echo "all touch files" already_configured* touchname= "$touch_name" 
+    echo "config options "$configure_options $configure_name""
     if [ -f bootstrap ]; then
       ./bootstrap # some need this to create ./configure :|
     fi
@@ -854,6 +856,8 @@ build_librtmfp() {
   cd librtmfp_git
     if [[ $compiler_flavors != "native" ]]; then
       apply_patch file://$patch_dir/rtmfp.static.cross.patch -p1 # works e48efb4f
+      apply_patch file://$patch_dir/rtmfp_capitalization.diff -p1 # cross for windows needs it if on linux...
+      apply_patch file://$patch_dir/librtmfp_xp.diff.diff -p1 # cross for windows needs it if on linux...
     else
       apply_patch file://$patch_dir/rtfmp.static.make.patch -p1
     fi
@@ -862,7 +866,7 @@ build_librtmfp() {
     if [[ $compiler_flavors == "native" ]]; then
       sed -i.bak 's/-lrtmfp.*/-lrtmfp -lstdc++/' "$PKG_CONFIG_PATH/librtmfp.pc"
     else
-      sed -i.bak 's/-lrtmfp.*/-lrtmfp -lstdc++ -lWs2_32 -liphlpapi/' "$PKG_CONFIG_PATH/librtmfp.pc"
+      sed -i.bak 's/-lrtmfp.*/-lrtmfp -lstdc++ -lws2_32 -liphlpapi/' "$PKG_CONFIG_PATH/librtmfp.pc"
     fi
   cd ..
 }
@@ -959,7 +963,7 @@ build_openssl-1.1.1() {
       if [[ $OSTYPE == darwin* ]]; then
         config_options+="darwin64-x86_64-cc "
       else
-        linux-generic64 # uh guess...
+        config_options+="linux-generic64 " 
       fi
       local arch=native
     elif [ "$bits_target" = "32" ]; then
@@ -1845,6 +1849,11 @@ build_ffmpeg() {
     init_options="--pkg-config=pkg-config --pkg-config-flags=--static --extra-version=ffmpeg-windows-build-helpers --enable-version3 --disable-debug --disable-w32threads"
     if [[ $compiler_flavors != "native" ]]; then
       init_options+=" --arch=$arch --target-os=mingw32 --cross-prefix=$cross_prefix"
+    else
+      if [[ $OSTYPE != darwin* ]]; then
+        unset PKG_CONFIG_LIBDIR # just use locally packages for all the xcb stuff for now, you need to install them locally first...
+        init_options+=" --enable-libv4l2 --enable-libxcb --enable-libxcb-shm --enable-libxcb-xfixes --enable-libxcb-shape "
+      fi 
     fi
     if [[ `uname` =~ "5.1" ]]; then
       init_options+=" --disable-schannel"
@@ -2267,6 +2276,11 @@ if [[ $compiler_flavors == "native" ]]; then
   export PKG_CONFIG_PATH="$mingw_w64_x86_64_prefix/lib/pkgconfig"
   export PATH="$mingw_bin_path:$original_path"
   make_prefix_options="PREFIX=$mingw_w64_x86_64_prefix"
+  if [[ $(uname -m) =~ 'i686' ]]; then
+    bits_target=32
+  else
+    bits_target=64
+  fi
   #  bs2b doesn't use pkg-config, sndfile needed Carbon :|
   export CPATH=$cur_dir/cross_compilers/native/include:/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/Carbon.framework/Versions/A/Headers # C_INCLUDE_PATH
   export LIBRARY_PATH=$cur_dir/cross_compilers/native/lib
