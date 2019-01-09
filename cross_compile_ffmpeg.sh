@@ -734,7 +734,7 @@ build_glib() {
       apply_patch file://$patch_dir/glib_msg_fmt.patch # needed for configure
       apply_patch  file://$patch_dir/glib-prefer-constructors-over-DllMain.patch # needed for static. weird.
     fi
-    generic_configure "--with-pcre=internal" # too lazy for pcre :) XXX
+    generic_configure "--with-pcre=internal --disable-libelf" # too lazy for pcre :) XXX
     unset CPPFLAGS
     do_make_and_make_install
   cd ..
